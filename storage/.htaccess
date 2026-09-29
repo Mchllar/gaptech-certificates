@@ -1,0 +1,2 @@
+# Apache: never serve generated certificates directly. download.php checks permissions first.
+Require all denied
