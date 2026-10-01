@@ -18,8 +18,8 @@ if (!$user && (!$client || (int)$client['id'] !== (int)$cert['client_id'])) {
 
 $print = !empty($_GET['print']);
 if ($print) {
-    q('UPDATE certificates SET print_count = print_count + 1 WHERE id = ?', [$cert['id']]);
-    audit('print_sheet', 'certificate', (int)$cert['id']);
+        q('UPDATE certificates SET print_count = print_count + 1,
+            released_at = COALESCE(released_at, now()) WHERE id = ?', [$cert['id']]);
 }
 
 $html = render_sheet($cert, 'screen');

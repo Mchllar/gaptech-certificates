@@ -151,7 +151,11 @@ function current_user(): ?array
     return $user ?: null;
 }
 
-function require_staff(): array
+/**
+ * The system has two kinds of account: administrators (this table) and clients.
+ * Every administrator has the same powers, so one check covers every staff page.
+ */
+function require_admin(): array
 {
     $user = current_user();
     if (!$user) {
@@ -160,14 +164,15 @@ function require_staff(): array
     return $user;
 }
 
+// Older names, kept so any page still calling them keeps working.
+function require_staff(): array
+{
+    return require_admin();
+}
+
 function require_supervisor(): array
 {
-    $user = require_staff();
-    if ($user['role'] !== 'supervisor') {
-        http_response_code(403);
-        exit('Only a supervisor can do this.');
-    }
-    return $user;
+    return require_admin();
 }
 
 function current_client(): ?array

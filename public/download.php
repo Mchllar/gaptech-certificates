@@ -27,9 +27,10 @@ if ($path === null) {
     redirect('sheet.php?id=' . (int)$cert['id'] . '&print=1');
 }
 
-if ($client) {
-    q('UPDATE certificates SET download_count = download_count + 1 WHERE id = ?', [$cert['id']]);
-}
+// Any download counts as the certificate leaving the office, staff or client.
+q('UPDATE certificates SET download_count = download_count + 1,
+          released_at = COALESCE(released_at, now()) WHERE id = ?', [$cert['id']]);
+          
 audit('download_pdf', 'certificate', (int)$cert['id']);
 
 header('Content-Type: application/pdf');

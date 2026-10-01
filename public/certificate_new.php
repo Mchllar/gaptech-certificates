@@ -182,7 +182,7 @@ Some values are filled in from Settings &mdash; type over them if this job is di
         . e($form['receipt_ref']) . '"></span></label>'; 
         ?>
         <br>
-  <button type="submit">Save and open certificate</button>
+  <button type="submit">Save Certificate</button>
 </form>
 
 <script>

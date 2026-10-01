@@ -37,14 +37,14 @@ function layout_top(string $title, string $nav = 'staff'): void
     $client = $nav === 'client' ? current_client() : null;
     $signedIn = $user || $client;
     ?><!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title><?= e($title) ?> &middot; GAPTECH Certificates</title>
-<link rel="stylesheet" href="assets/style.css">
-</head>
-<body class="<?= $signedIn ? 'has-sidebar' : 'plain' ?>">
+      <html lang="en">
+      <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title><?= e($title) ?> &middot; GAPTECH Certificates</title>
+      <link rel="stylesheet" href="assets/style.css">
+      </head>
+      <body class="<?= $signedIn ? 'has-sidebar' : 'plain' ?>">
 
 <?php if ($signedIn): ?>
 <aside class="sidebar" id="sidebar">
@@ -58,9 +58,9 @@ function layout_top(string $title, string $nav = 'staff'): void
       <?= nav_item('index.php', 'dashboard', 'Dashboard') ?>
       <?= nav_item('certificate_new.php', 'new', 'New certificate') ?>
       <?= nav_item('client_access.php', 'clients', 'Client Portal Access') ?>
-      <?php if ($user['role'] === 'supervisor'): ?>
-        <?= nav_item('settings.php', 'settings', 'Settings') ?>
-      <?php endif; ?>
+      <?= nav_item('user_admin.php', 'clients', 'Accounts') ?>
+      <?= nav_item('settings.php', 'settings', 'Settings') ?>
+      
     <?php else: ?>
       <?= nav_item('client_portal.php', 'certs', 'My certificates') ?>
     <?php endif; ?>

@@ -12,9 +12,15 @@ return [
         'pass' => 'Admin@907',
     ],
 
+    // SMTP Configuration
+    'host' => 'smtp.office365.com',
+    'port' => 587,
+    'security' => 'tls',
+
     // Where the app is reachable. Used for links in the QR code and e-mails.
     // Example on the office server: http://192.168.1.10/certificates/public
-    'base_url' => 'http://192.168.0.109/gaptech-certificates/public',
+    'base_url' => '192.168.0.109/gaptech-certificates/public',
+
 
     // Path to wkhtmltopdf. Leave empty to disable server-side PDFs and use the
     // browser's own "Save as PDF" from the print view instead.

@@ -42,7 +42,12 @@ layout_top('Certificate ' . $cert['number']);
     <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>&amp;print=1" target="_blank">Save as PDF</a>
   <?php endif; ?>
   <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>" target="_blank">Preview</a>
-  <a class="button" href="certificate_new.php?reg=<?= urlencode($d['vehicle']['reg_no']) ?>">Renew this vehicle</a>
+
+  <?php if ($status === 'Valid'): ?>
+    <a class="button" href="certificate_edit.php?id=<?= (int)$cert['id'] ?>">Edit certificate</a>
+  <?php elseif ($status === 'Expired'): ?>
+    <a class="button" href="certificate_new.php?reg=<?= urlencode($d['vehicle']['reg_no']) ?>">Renew</a>
+  <?php endif; ?>
 </div>
 
 <table class="details">

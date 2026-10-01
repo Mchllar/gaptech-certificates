@@ -79,7 +79,9 @@ CREATE TABLE IF NOT EXISTS certificates (
     issued_at       timestamptz NOT NULL DEFAULT now(),
     void_reason     text,
     voided_by       integer REFERENCES users (id),
-    voided_at       timestamptz
+    voided_at       timestamptz,
+    --When it was first downloaded by the client/staff
+    released_at       timestamptz
 );
 CREATE INDEX IF NOT EXISTS certificates_vehicle_idx ON certificates (vehicle_id);
 CREATE INDEX IF NOT EXISTS certificates_client_idx ON certificates (client_id);
