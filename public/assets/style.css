@@ -161,3 +161,21 @@ input.caps { text-transform: uppercase; }
 .field-note { display:none; margin-top:4px; font-size:12.5px; color:var(--red); }
 .field-note.show { display:block; }
 .input-bad { border-color:var(--red) !important; }
+
+/* Reset Password */
+.row-actions { display:flex; gap:12px; flex-wrap:wrap; }
+.row-actions form { margin:0; }
+.link-button { background:none; border:0; padding:0; color:var(--navy); font-size:14px;
+               text-decoration:underline; cursor:pointer; }
+.link-button:hover { background:none; color:var(--red); }
+.new-password { font-family:"Consolas", monospace; font-size:22px; letter-spacing:1px;
+                background:#fff; border:1px dashed var(--line); border-radius:6px;
+                padding:10px 14px; display:inline-block; margin:4px 0 8px; }
+
+
+/*Password Section*/
+.pw-rules { list-style:none; margin:4px 0 12px; padding:0; font-size:13px; color:var(--muted); }
+.pw-rules li { padding:2px 0 2px 22px; position:relative; }
+.pw-rules li::before { content:"○"; position:absolute; left:4px; }
+.pw-rules li.met { color:#1a7a3c; }
+.pw-rules li.met::before { content:"✓"; font-weight:700; }

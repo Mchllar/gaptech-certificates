@@ -70,7 +70,7 @@ layout_top('Certificate ' . $cert['number']);
 
 <?php if ($cert['status'] === 'voided'): ?>
   <p class="error">Voided: <?= e($cert['void_reason']) ?></p>
-<?php elseif ($user['role'] === 'supervisor'): ?>
+<?php else: ?>
 <form method="post" class="void-form" onsubmit="return confirm('Void this certificate? This cannot be undone.');">
   <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
   <input type="hidden" name="action" value="void">
