@@ -38,10 +38,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'create') {
         $name = trim((string)$_POST['name']);
         $email = trim((string)$_POST['email']);
+        $username = trim((string)$_POST['username']);
         $role = (string)$_POST['role'];
         $password = (string)$_POST['password'];
-          if ($name === '' || $email === '') {
-            flash('Name and e-mail are required.');
+          if ($name === '' || $username === '') {
+            flash('Name and username are required.');
+          } elseif (q('SELECT 1 FROM users WHERE lower(username) = lower(?)', [$username])->fetch()) {
+            flash('That username is taken.');
           } elseif (($pwError = password_problem($password, (string)($_POST['password2'] ?? ''))) !== null) {
             flash($pwError);
           } elseif ($role !=='administrator') {
@@ -49,9 +52,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           } elseif (q('SELECT 1 FROM users WHERE lower(email) = lower(?)', [$email])->fetch()) {
             flash('That e-mail already has an account.'); 
           } else {
-            $id = (int)q('INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, ?) RETURNING id',
-                [$name, $email, password_hash($password, PASSWORD_DEFAULT), $role])->fetchColumn();
-            audit('create_user', 'user', $id, ['email' => $email, 'role' => $role]);
+            $id = (int)q('INSERT INTO users (name, username, email, password_hash, role)
+            VALUES (?, ?, ?, ?, ?) RETURNING id',
+            [$name, $username, $email, password_hash($password, PASSWORD_DEFAULT), $role])->fetchColumn();
             flash('Account created for ' . $name . '.');
         }
         redirect('user_admin.php');
@@ -95,6 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $users = q('SELECT * FROM users ORDER BY active DESC, name')->fetchAll();
 layout_top('Staff accounts');
+layout_back('index.php', 'Back to certificates');
 ?>
 <h1>Administrator Accounts</h1>
 
@@ -146,8 +150,11 @@ layout_top('Staff accounts');
     <label class="field">Full name <span class="req">*</span>
       <span class="field-row"><input name="name" required></span></label>
 
-    <label class="field">E-mail <span class="req">*</span>
-      <span class="field-row"><input name="email" type="email" required></span></label>
+    <label class="field">E-mail <span class="req"></span>
+      <span class="field-row"><input name="email" type="email"></span></label>
+
+    <label class="field">Username <span class="req">*</span>
+      <span class="field-row"><input name="username" required autocapitalize="none"></span></label> 
 
         <input type="hidden" name="role" value="administrator"></span>
     <label class="field">Role <span class="req">*</span>

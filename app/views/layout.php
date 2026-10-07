@@ -55,15 +55,20 @@ function layout_top(string $title, string $nav = 'staff'): void
   <p class="side-heading">Menu</p>
   <nav class="side-nav">
     <?php if ($user): ?>
-      <?= nav_item('index.php', 'dashboard', 'Dashboard') ?>
-      <?= nav_item('certificate_new.php', 'new', 'New certificate') ?>
-      <?= nav_item('client_access.php', 'clients', 'Client Portal Access') ?>
-      <?= nav_item('user_admin.php', 'clients', 'Accounts') ?>
-      <?= nav_item('settings.php', 'settings', 'Settings') ?>
-      
+      <?php if ($user['role'] === 'accounts'): ?>
+        <?= nav_item('approvals.php', 'certs', 'Approvals') ?>
+        <?= nav_item('payments.php', 'dashboard', 'Payments') ?>
+      <?php else: ?>
+        <?= nav_item('index.php', 'dashboard', 'Dashboard') ?>
+        <?= nav_item('certificate_new.php', 'new', 'New certificate') ?>
+        <?= nav_item('client_access.php', 'clients', 'Client Portal Access') ?>
+        <?= nav_item('user_admin.php', 'clients', 'Accounts') ?>
+        <?= nav_item('settings.php', 'settings', 'Settings') ?>
+      <?php endif; ?>
+      <?= nav_item('change_password.php', 'settings', 'Change password') ?>
     <?php else: ?>
-      <?= nav_item('client_portal.php', 'certs', 'My certificates') ?>
-    <?php endif; ?>
+    <?= nav_item('client_portal.php', 'certs', 'My certificates') ?>
+    <?php endif; ?> 
   </nav>
 
   <div class="side-foot">
@@ -74,6 +79,14 @@ function layout_top(string $title, string $nav = 'staff'): void
 <?php endif; ?>
 
 <div class="shell">
+  <?php if (!$signedIn): ?>
+    <div class="auth-brand">
+      <img src="assets/logo_header.png" alt="">
+      <!--<span class="auth-name"><?= e(setting('company_name', 'GAPTECH Solutions Ltd')) ?></span>-->
+     <!-- <span class="auth-tagline"><?= e(setting('tagline', '')) ?></span>-->
+    </div>
+  <?php endif; ?>
+
   <?php if ($signedIn): ?>
   <header class="topbar">
     <button class="menu-toggle" id="menuToggle" aria-label="Menu">&#9776;</button>
@@ -83,7 +96,8 @@ function layout_top(string $title, string $nav = 'staff'): void
       <?php if ($user): ?><span class="role-badge"><?= e($user['role']) ?></span><?php endif; ?>
     </div>
   </header>
-  <?php endif; ?>
+  <?php 
+endif; ?>
 
   <main>
 <?php
@@ -93,6 +107,12 @@ function layout_top(string $title, string $nav = 'staff'): void
     }
 }
 
+/** A back link above the page heading. Call it immediately after layout_top(). */
+function layout_back(string $href, string $label = 'Back'): void
+{
+    echo '<a class="back-link" href="' . e($href) . '">'
+       . '<span aria-hidden="true">&larr;</span> ' . e($label) . '</a>';
+}
 function layout_bottom(): void
 {
     ?>

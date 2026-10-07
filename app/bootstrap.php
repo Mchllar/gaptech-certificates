@@ -9,6 +9,62 @@ define('ROOT_DIR', dirname(__DIR__));
 
 $config = require APP_DIR . '/config.php';
 
+// Never show a raw PHP error to a user. Log the detail, show a plain page with a
+// reference the administrator can look up.
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+
+function show_failure(string $detail): void
+{
+    global $config;
+    $ref = strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
+    $dir = rtrim($config['storage'], '/\\') . '/logs';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0770, true);
+    }
+    @file_put_contents($dir . '/errors.log',
+        date('Y-m-d H:i:s') . "  [{$ref}]  " . ($_SERVER['REQUEST_URI'] ?? 'cli') . "\n"
+        . $detail . "\n\n", FILE_APPEND | LOCK_EX);
+
+    if (!headers_sent()) {
+        http_response_code(500);
+        header('Content-Type: text/html; charset=utf-8');
+    }
+    echo '<!doctype html><meta charset="utf-8"><title>Something went wrong</title>'
+       . '<div style="font-family:Segoe UI,Arial,sans-serif;max-width:520px;margin:80px auto;'
+       . 'padding:28px;border:1px solid #D9E2EC;border-radius:12px;background:#fff">'
+       . '<h1 style="font-size:19px;margin:0 0 10px;color:#0D4F72">Something went wrong</h1>'
+       . '<p style="color:#5A6472;font-size:14px;line-height:1.5">The page could not be completed. '
+       . 'Please try again. If it keeps happening, tell the administrator and quote reference '
+       . '<strong>' . $ref . '</strong>.</p>'
+       . '<p><a href="welcome.php" style="color:#0D4F72">Back to the start</a></p></div>';
+    exit;
+}
+
+set_exception_handler(function (Throwable $e) {
+    show_failure($e->getMessage() . "\n" . $e->getFile() . ':' . $e->getLine() . "\n" . $e->getTraceAsString());
+});
+
+register_shutdown_function(function () {
+    $err = error_get_last();
+    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR], true)) {
+        show_failure($err['message'] . "\n" . $err['file'] . ':' . $err['line']);
+    }
+});
+
+// Work out the address from the request when base_url is left empty, so the system
+// follows whatever host was used: localhost, 192.168.x.x, or a real domain later.
+if (empty($config['base_url'])) {
+    if (PHP_SAPI === 'cli') {
+        $config['base_url'] = 'http://localhost/gaptech-certificates/public';
+    } else {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        $dir = rtrim(str_replace('\\', '/', dirname((string)($_SERVER['SCRIPT_NAME'] ?? '/'))), '/');
+        $config['base_url'] = $scheme . '://' . $host . $dir;
+    }
+}
+
 require_once APP_DIR . '/qr.php';
 
 // ----------------------------------------------------------------- database
@@ -50,12 +106,13 @@ function redirect(string $path): void
     exit;
 }
 
-function fmt_date(?string $iso): string
+function fmt_date(?string $date): string
 {
-    if (!$iso) {
+    if (!$date) {
         return '';
     }
-    return date('d-m-Y', strtotime($iso));
+    $t = strtotime($date);
+    return $t ? date('d F Y', $t) : (string)$date;
 }
 
 // ----------------------------------------------------------------- session
@@ -83,6 +140,10 @@ function csrf_token(): string
 function csrf_check(): void
 {
     start_session();
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        http_response_code(500);
+        exit('The session could not be started on the server. Check that nothing is printed before bootstrap.php loads.');
+    }
     $sent = $_POST['csrf'] ?? '';
     if (!hash_equals($_SESSION['csrf'] ?? '', (string)$sent)) {
         http_response_code(400);
@@ -155,7 +216,36 @@ function current_user(): ?array
  * The system has two kinds of account: administrators (this table) and clients.
  * Every administrator has the same powers, so one check covers every staff page.
  */
+/** An administrator: issues certificates, manages clients and settings. */
 function require_admin(): array
+{
+    $user = current_user();
+    if (!$user) {
+        redirect('login.php');
+    }
+    if ($user['role'] !== 'administrator') {
+        http_response_code(403);
+        exit('This page is for administrators. You are signed in as ' . e($user['role']) . '.');
+    }
+    return $user;
+}
+
+/** Accounts: records payments and approves certificates. */
+function require_accounts(): array
+{
+    $user = current_user();
+    if (!$user) {
+        redirect('login.php');
+    }
+    if ($user['role'] !== 'accounts') {
+        http_response_code(403);
+        exit('This page is for accounts. You are signed in as ' . e($user['role']) . '.');
+    }
+    return $user;
+}
+
+/** Any signed-in member of staff, whichever role. */
+function require_staff(): array
 {
     $user = current_user();
     if (!$user) {
@@ -164,16 +254,12 @@ function require_admin(): array
     return $user;
 }
 
-// Older names, kept so any page still calling them keeps working.
-function require_staff(): array
-{
-    return require_admin();
-}
-
+// Older name, kept so any page still calling it keeps working.
 function require_supervisor(): array
 {
     return require_admin();
 }
+
 
 function current_client(): ?array
 {
@@ -192,3 +278,5 @@ function require_client(): array
     }
     return $client;
 }
+start_session();
+

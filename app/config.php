@@ -13,14 +13,21 @@ return [
     ],
 
     // SMTP Configuration
-    'host' => 'smtp.office365.com',
-    'port' => 587,
-    'security' => 'tls',
-
+    // // ---- E-mail (password reset links) ----
+    // 'smtp' => [
+    //     'host' => 'smtp.office365.com',
+    //     'port' => 587,
+    //     'security' => 'tls',
+    //     'username' => 'm.guya@gaptechsolutions.com',
+    //     'password' => 'akVSbepedo}iP~oo',
+    //     'from' => 'm.guya@gaptechsolutions.com',
+    //     'from_name' => 'GAPTECH Certificates',
+    //     'helo' => 'gaptechsolutions.com',
+    // ],
     // Where the app is reachable. Used for links in the QR code and e-mails.
     // Example on the office server: http://192.168.1.10/certificates/public
-    'base_url' => '192.168.0.109/gaptech-certificates/public',
-
+   
+    'base_url' => '', 
 
     // Path to wkhtmltopdf. Leave empty to disable server-side PDFs and use the
     // browser's own "Save as PDF" from the print view instead.

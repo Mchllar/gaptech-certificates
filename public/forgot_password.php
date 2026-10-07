@@ -12,17 +12,25 @@ $problem = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
-    $email = trim((string)($_POST['email'] ?? ''));
+    //$email = trim((string)($_POST['email'] ?? ''));
+    $username = trim((string)$_POST['username']);
 
-    // Throttle: at most 5 requests an hour for one account.
+    // // Throttle: at most 5 requests an hour for one account.
+    // $recent = (int)q("SELECT count(*) FROM password_resets r JOIN users u ON u.id = r.user_id
+    //                   WHERE lower(u.email) = lower(?) AND r.created_at > now() - interval '1 hour'",
+    //     [$email])->fetchColumn();
+
+    // $user = q('SELECT * FROM users WHERE lower(email) = lower(?) AND active', [$email])->fetch();
+
+     // Throttle: at most 5 requests an hour for one account.
     $recent = (int)q("SELECT count(*) FROM password_resets r JOIN users u ON u.id = r.user_id
-                      WHERE lower(u.email) = lower(?) AND r.created_at > now() - interval '1 hour'",
-        [$email])->fetchColumn();
+    WHERE lower(u.username) = lower(?) AND r.created_at > now() - interval '1 hour'",
+    [$username])->fetchColumn();
 
-    $user = q('SELECT * FROM users WHERE lower(email) = lower(?) AND active', [$email])->fetch();
+    $user = q('SELECT * FROM users WHERE lower(username) = lower(?) AND active', [$username])->fetch();
 
-    if ($user && $recent < 5) {
-        $token = bin2hex(random_bytes(24));
+    if ($user && !empty($user['email']) && $recent < 5) {
+      $token = bin2hex(random_bytes(24));
         q("INSERT INTO password_resets (user_id, token_hash, expires_at, requested_ip)
            VALUES (?, ?, now() + interval '1 hour', ?)",
             [$user['id'], hash('sha256', $token), $_SERVER['REMOTE_ADDR'] ?? '']);
@@ -49,8 +57,9 @@ layout_top('Forgot password', 'public');
 <h1>Forgot your password</h1>
 
 <?php if ($sent && $problem === ''): ?>
-  <p class="flash">If that e-mail address has an account, a reset link is on its way. It works for one hour.</p>
-  <p class="hint">Nothing arrived? Check the spam folder, or ask the other administrator to reset it for you
+    <p class="flash">If that account exists and has an e-mail address on file, a reset link is on its way.
+      It works for one hour.</p>
+    <p class="hint">Nothing arrived? Check the spam folder, or ask the other administrator to reset it for you
     from Staff accounts.</p>
 <?php elseif ($sent): ?>
   <p class="error">The reset e-mail could not be sent: <?= e($problem) ?></p>
@@ -63,7 +72,8 @@ layout_top('Forgot password', 'public');
   <?php endif; ?>
   <form method="post" class="narrow">
     <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
-    <label>Your e-mail address <input name="email" type="email" required autofocus></label>
+    <!--<label>Your e-mail address <input name="email" type="email" required autofocus></label>-->
+    <label>Your username <input name="username" required autofocus autocapitalize="none"></label>
     <button type="submit">Send reset link</button>
   </form>
 <?php endif; ?>

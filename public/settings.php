@@ -11,8 +11,7 @@ $fields = [
     'address_line1' => 'Address line 1', 'address_line2' => 'Address line 2',
     'cell' => 'Cell', 'landline' => 'Landline', 'email' => 'E-mail',
     'reg_no' => 'Company reg. no.', 'dealer_no' => 'Dealer no.', 'dealer_name' => 'Dealer name',
-    'kebs_permit' => 'KEBS permit', 'signatory_name' => 'Authorised officer',
-    'signatory_title' => 'Officer title', 'default_model' => 'Default governor model',
+    'kebs_permit' => 'KEBS permit', 'default_model' => 'Default governor model',
     'default_speed' => 'Default set speed (km/h)', 'last_cert_number' => 'Last certificate number used',
     'default_technician' => 'Default technician / agent',
 ];
@@ -43,6 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 layout_top('Settings');
+layout_back('index.php', 'Back to certificates');
 ?>
 <h1>Settings</h1>
 <p class="hint">These values are printed on new certificates. Certificates already issued keep the details
@@ -58,11 +58,30 @@ they were issued with.</p>
   </fieldset>
   <fieldset>
     <legend>Signature and stamp</legend>
-    <p class="hint">PNG with a transparent background works best. Leave empty to keep the current image.</p>
-    <label>Signature image <input type="file" name="signature" accept="image/png,image/jpeg"></label>
-    <label><input type="checkbox" name="clear_signature" value="1"> Remove the current signature</label>
-    <label>Stamp image <input type="file" name="stamp" accept="image/png,image/jpeg"></label>
-    <label><input type="checkbox" name="clear_stamp" value="1"> Remove the current stamp</label>
+    <p class="hint" style="text-align:left">PNG with a transparent background works best.
+       Leave the file box empty to keep the current image.</p>
+
+    <div class="img-settings">
+      <?php foreach ([
+          'signature' => ['Signature', setting('signature_image', '')],
+          'stamp'     => ['Company stamp', setting('stamp_image', '')],
+      ] as $field => $info): ?>
+        <div class="img-setting">
+          <span class="img-label"><?= e($info[0]) ?></span>
+          <?php if ($info[1] !== ''): ?>
+            <div class="img-preview"><img src="<?= e($info[1]) ?>" alt="Current <?= e(strtolower($info[0])) ?>"></div>
+          <?php else: ?>
+            <div class="img-preview img-empty">Nothing uploaded yet</div>
+          <?php endif; ?>
+          <label>Replace it
+            <input type="file" name="<?= e($field) ?>" accept="image/png,image/jpeg"></label>
+          <?php if ($info[1] !== ''): ?>
+            <label class="inline">
+              <input type="checkbox" name="clear_<?= e($field) ?>" value="1"> Remove it</label>
+          <?php endif; ?>
+        </div>
+      <?php endforeach; ?>
+    </div>
   </fieldset>
   <button type="submit">Save settings</button>
 </form>

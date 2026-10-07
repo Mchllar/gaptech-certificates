@@ -1,0 +1,35 @@
+2026-10-07 10:29:42  [D1F24C]  /gaptech-certificates/public/approvals.php
+Call to undefined function require_accounts()
+C:\xampp\htdocs\gaptech-certificates\public\approvals.php:12
+#0 {main}
+
+2026-10-07 10:52:55  [FE4D1C]  /gaptech-certificates/public/approvals.php
+Call to undefined function require_accounts()
+C:\xampp\htdocs\gaptech-certificates\public\approvals.php:12
+#0 {main}
+
+2026-10-07 10:53:46  [4F4B5C]  /gaptech-certificates/public/approvals.php
+Call to undefined function require_accounts()
+C:\xampp\htdocs\gaptech-certificates\public\approvals.php:12
+#0 {main}
+
+2026-10-07 10:55:01  [0F2841]  /gaptech-certificates/public/approvals.php
+Call to undefined function require_accounts()
+C:\xampp\htdocs\gaptech-certificates\public\approvals.php:12
+#0 {main}
+
+2026-10-07 11:01:22  [715F32]  /gaptech-certificates/public/approvals.php
+Call to undefined function require_accounts()
+C:\xampp\htdocs\gaptech-certificates\public\approvals.php:12
+#0 {main}
+
+2026-10-07 11:01:25  [A93C30]  /gaptech-certificates/public/approvals.php
+Call to undefined function require_accounts()
+C:\xampp\htdocs\gaptech-certificates\public\approvals.php:12
+#0 {main}
+
+2026-10-07 11:01:48  [ED4946]  /gaptech-certificates/public/approvals.php
+Call to undefined function require_accounts()
+C:\xampp\htdocs\gaptech-certificates\public\approvals.php:12
+#0 {main}
+

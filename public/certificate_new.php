@@ -4,25 +4,28 @@ require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/certificates.php';
 require APP_DIR . '/views/layout.php';
 
-$user = require_staff();
+$user = require_admin();
 $errors = [];
 
-/** Values prefilled from Settings. Staff can type over them. */
+/** Values that never appear on the form - they always come from Settings. */
 $defaults = [
     // trim() and ?: so a setting saved as blank still falls back to the value here
     'device_model' => trim((string)setting('default_model')) ?: 'INTELSPEED™',
     'set_speed_kmh' => trim((string)setting('default_speed')) ?: '80',
     'technician' => trim((string)setting('default_technician')) ?: 'GAPTECH',
+    'validity_months' => trim((string)setting('default_validity_months')) ?: '12',
 ];
 
 $form = [
     'client_name' => '', 'client_phone' => '', 'client_address' => '',
     'reg_no' => '', 'make' => '', 'chassis_no' => '',
-    'device_model' => $defaults['device_model'], 'serial_no' => '', 
+    'device_model' => $defaults['device_model'], 'serial_no' => '',
     'set_speed_kmh' => $defaults['set_speed_kmh'],
     'installed_on' => date('Y-m-d'), 'technician' => $defaults['technician'],
-    'type' => 'Renewal', 'issue_date' => date('Y-m-d'), 'validity_months' => '12',
-    'expiry_date' => 'Expiry date', 'receipt_ref' => '',
+    'type' => 'Renewal', 'issue_date' => date('Y-m-d'),
+    'validity_months' => $defaults['validity_months'],
+    'expiry_date' => default_expiry(date('Y-m-d'), (int)$defaults['validity_months']),
+    'receipt_ref' => '',
 ];
 
 /** Fields that are typed in capitals, on screen and when saved. */
@@ -41,15 +44,12 @@ if (!empty($_GET['reg'])) {
         $form['reg_no'] = $v['reg_no'];
         $form['make'] = $v['make'];
         $form['chassis_no'] = $v['chassis_no'];
-        $last = q('SELECT d.*, i.technician, i.installed_on
+        $last = q('SELECT d.*, i.installed_on
                    FROM installations i JOIN devices d ON d.id = i.device_id
                    WHERE i.vehicle_id = ? ORDER BY i.installed_on DESC LIMIT 1', [$v['id']])->fetch();
         if ($last) {
-            $form['device_model'] = $last['model'];
             $form['serial_no'] = $last['serial_no'];
-            $form['set_speed_kmh'] = $last['set_speed_kmh'];
             $form['installed_on'] = $last['installed_on'];
-            $form['technician'] = $last['technician'];
         }
     }
 }
@@ -63,27 +63,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $form[$key] = $value;
     }
-    if ($form['expiry_date'] === '' && $form['issue_date'] !== '') {
+
+    // These are not on the form, so whatever was posted is ignored.
+    $form['device_model'] = $defaults['device_model'];
+    $form['set_speed_kmh'] = $defaults['set_speed_kmh'];
+    $form['technician'] = $defaults['technician'];
+    $form['validity_months'] = $defaults['validity_months'];
+    if (strtotime((string)$form['issue_date']) !== false) {
         $form['expiry_date'] = default_expiry($form['issue_date'], (int)$form['validity_months']);
     }
 
-    // Every field is required except 'receipt_ref' => 'Receipt reference',
-
+    // Everything is required except the receipt reference.
     $labels = [
         'client_name' => 'Customer name', 'client_phone' => 'Contact', 'client_address' => 'Address',
         'reg_no' => 'Registration number', 'make' => 'Make', 'chassis_no' => 'Chassis number',
-        'device_model' => 'Governor model', 'serial_no' => 'Serial number', 
-        'set_speed_kmh' => 'Set speed', 'installed_on' => 'Date installed', 'technician' => 'Technician',
-        'type' => 'Service type', 'issue_date' => 'Issue date', 'validity_months' => 'Validity',
-        'expiry_date' => 'Expiry date', 
+        'serial_no' => 'Serial number', 'installed_on' => 'Date installed',
+        'type' => 'Service type', 'issue_date' => 'Issue date',
     ];
     foreach ($labels as $field => $label) {
         if ($form[$field] === '') {
             $errors[] = $label . ' is required.';
         }
     }
+    foreach (['issue_date' => 'Issue date', 'installed_on' => 'Date installed'] as $field => $label) {
+        if ($form[$field] !== '' && strtotime((string)$form[$field]) === false) {
+            $errors[] = $label . ' is not a valid date.';
+        }
+    }
     if (!in_array($form['type'], ['Fitting', 'Renewal'], true)) {
         $errors[] = 'Choose fitting or renewal.';
+    }
+    if ($form['client_phone'] !== '' && !preg_match('/^[0-9+ ]+$/', $form['client_phone'])) {
+        $errors[] = 'Contact may contain only digits, spaces and +.';
     }
     if ($form['receipt_ref'] !== '') {
         $used = q('SELECT number FROM certificates WHERE receipt_ref = ?', [$form['receipt_ref']])->fetch();
@@ -120,10 +131,11 @@ function field(string $name, string $label, string $value, array $opts = []): vo
 }
 
 layout_top('New certificate');
+layout_back('index.php', 'Back to certificates');
 ?>
 <h1>New certificate</h1>
-<p class="hint">All fields are required except the receipt reference. The certificate number is allocated automatically when you save.
-Some values are filled in from Settings &mdash; type over them if this job is different.</p>
+<p class="hint">All fields are required except the receipt reference. The certificate number, governor model,
+set speed, technician and expiry date are filled in automatically from Settings when you save.</p>
 
 <?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
 
@@ -136,8 +148,7 @@ Some values are filled in from Settings &mdash; type over them if this job is di
     <label class="field">Contact <span class="req">*</span>
       <span class="field-row">
         <input name="client_phone" type="tel" value="<?= e($form['client_phone']) ?>" required
-               inputmode="tel" pattern="[0-9+ ]+" maxlength="20"
-               title="Digits, spaces and + only">
+               inputmode="tel" pattern="[0-9+ ]+" maxlength="20" title="Digits, spaces and + only">
       </span>
     </label>
     <?php field('client_address', 'Address', $form['client_address'], ['caps' => true]); ?>
@@ -152,15 +163,8 @@ Some values are filled in from Settings &mdash; type over them if this job is di
 
   <fieldset>
     <legend>Speed governor</legend>
-    <?php field('device_model', 'Model', $form['device_model'], ['caps' => true]); ?>
     <?php field('serial_no', 'Serial no.', $form['serial_no'], ['caps' => true]); ?>
-    <?php field('set_speed_kmh', 'Set speed (km/h)', $form['set_speed_kmh'],
-        ['type' => 'number', 'min' => 1, 'max' => 200]); ?>
     <?php field('installed_on', 'Date installed', $form['installed_on'], ['type' => 'date']); ?>
-    <label class="field">Acting agent / technician
-      <span class="field-static"><?= e($form['technician']) ?></span>
-      <input type="hidden" name="technician" value="<?= e($form['technician']) ?>">
-    </label>
   </fieldset>
 
   <fieldset>
@@ -174,14 +178,13 @@ Some values are filled in from Settings &mdash; type over them if this job is di
       </span>
     </label>
     <?php field('issue_date', 'Issue date', $form['issue_date'], ['type' => 'date']); ?>
-    <?php field('validity_months', 'Valid for (months)', $form['validity_months'],
-        ['type' => 'number', 'min' => 1, 'max' => 60]); ?>
-    <?php field('expiry_date', 'Expiry date', $form['expiry_date'], ['type' => 'date']); ?>
-    <?php echo '<label class="field">Receipt / payment reference'
-        . '<span class="field-row"><input name="receipt_ref" class="caps" value="'
-        . e($form['receipt_ref']) . '"></span></label>'; 
-        ?>
-        <br>
+    <label class="field">Receipt / payment reference
+      <span class="field-row">
+        <input name="receipt_ref" class="caps" value="<?= e($form['receipt_ref']) ?>">
+      </span>
+    </label>
+  </fieldset>
+
   <button type="submit">Save Certificate</button>
 </form>
 
@@ -195,29 +198,14 @@ document.querySelectorAll('input.caps').forEach(function (input) {
   });
 });
 
-// Keep the expiry date in step with the issue date: twelve months, less a day.
-function recalcExpiry() {
-  var issue = document.querySelector('[name=issue_date]').value;
-  var months = parseInt(document.querySelector('[name=validity_months]').value || '12', 10);
-  if (!issue) { return; }
-  var d = new Date(issue + 'T00:00:00');
-  d.setMonth(d.getMonth() + months);
-  d.setDate(d.getDate() - 1);
-  document.querySelector('[name=expiry_date]').value = d.toISOString().slice(0, 10);
-}
-document.querySelector('[name=issue_date]').addEventListener('change', recalcExpiry);
-document.querySelector('[name=validity_months]').addEventListener('change', recalcExpiry);
-
-// Enforce allowed characters for client phone input: digits, spaces, and + only.
+// Contact: digits, spaces and + only, with a message when something else is typed.
 (function () {
   var phone = document.querySelector('[name=client_phone]');
   if (!phone) { return; }
-
   var note = document.createElement('span');
   note.className = 'field-note';
   note.textContent = 'Only digits, spaces and + are allowed.';
   phone.parentNode.parentNode.appendChild(note);
-
   var hideTimer;
   phone.addEventListener('input', function () {
     var cleaned = this.value.replace(/[^0-9+ ]/g, '');

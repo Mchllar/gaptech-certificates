@@ -170,6 +170,7 @@ function edit_field(string $name, string $label, string $value, array $opts = []
 }
 
 layout_top('Edit certificate ' . $cert['number']);
+layout_back('certificate_view.php?id=' . (int)$cert['id'], 'Back to certificate');
 ?>
 <h1>EDIT CERTIFICATE - <?= e($cert['number']) ?></h1>
 <p class="hint" style="color: blue;"><?= e($snapshot['client']['name']) ?> &middot; <?= e($snapshot['vehicle']['reg_no']) ?></p>
@@ -218,12 +219,8 @@ downloaded yet.</p>
 
   <fieldset>
     <legend>Speed governor</legend>
-    <?php edit_field('device_model', 'Model', $form['device_model'], ['caps' => true]); ?>
     <?php edit_field('serial_no', 'Serial no.', $form['serial_no'], ['caps' => true]); ?>
-    <?php edit_field('set_speed_kmh', 'Set speed (km/h)', $form['set_speed_kmh'],
-        ['type' => 'number', 'min' => 1, 'max' => 200]); ?>
     <?php edit_field('installed_on', 'Date installed', $form['installed_on'], ['type' => 'date']); ?>
-    <?php edit_field('technician', 'Acting agent / technician', $form['technician'], ['caps' => true]); ?>
   </fieldset>
 
   <fieldset>

@@ -1,14 +1,18 @@
 <?php
-/** Staff dashboard: search, filter by status, paged list, and what is expiring soon. */
+/** Administrator dashboard: search, filter by status, paged list, and what expires soon. */
 require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/certificates.php';
 require APP_DIR . '/views/layout.php';
 
-require_staff();
+// A client who lands here goes to their own portal rather than a refusal.
+if (!current_user() && current_client()) {
+    redirect('client_portal.php');
+}
+$user = require_admin();
 
 $search = trim((string)($_GET['q'] ?? ''));
 $status = (string)($_GET['status'] ?? 'all');
-if (!in_array($status, ['all', 'valid', 'expired', 'voided'], true)) {
+if (!in_array($status, ['all', 'pending', 'valid', 'expired', 'superseded', 'voided', 'rejected'], true)) {
     $status = 'all';
 }
 $perPage = (int)($_GET['per'] ?? 25);
@@ -20,6 +24,7 @@ $page = max(1, (int)($_GET['page'] ?? 1));
 // Build the filter once and use it for both the count and the page of rows.
 $where = [];
 $params = [];
+
 if ($search !== '') {
     $where[] = '(v.reg_no ILIKE ? OR cl.name ILIKE ? OR CAST(c.number AS text) LIKE ?)';
     $like = '%' . $search . '%';
@@ -27,32 +32,45 @@ if ($search !== '') {
     $params[] = $like;
     $params[] = $like;
 }
-if ($status === 'voided') {
-    $where[] = "c.status = 'voided'";
-} elseif ($status === 'expired') {
-    $where[] = "c.status = 'issued' AND c.expiry_date < current_date";
+
+if ($status === 'pending') {
+    $where[] = "c.approval_status = 'pending'";
+} elseif ($status === 'rejected') {
+    $where[] = "c.approval_status = 'rejected'";
 } elseif ($status === 'valid') {
-    $where[] = "c.status = 'issued' AND c.expiry_date >= current_date";
+    $where[] = "c.approval_status = 'approved' AND c.status = 'issued' AND c.expiry_date >= current_date";
+} elseif ($status === 'expired') {
+    $where[] = "c.approval_status = 'approved' AND c.status = 'issued' AND c.expiry_date < current_date";
+} elseif ($status === 'superseded') {
+    $where[] = "c.status = 'superseded'";
+} elseif ($status === 'voided') {
+    $where[] = "c.status = 'voided'";
 }
+
 $whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
 $from = 'FROM certificates c
          JOIN vehicles v ON v.id = c.vehicle_id
          JOIN clients cl ON cl.id = c.client_id';
 
-$total = (int)q("SELECT count(*) $from $whereSql", $params)->fetchColumn();
-$pages = max(1, (int)ceil($total / $perPage));
-$page = min($page, $pages);
+$total  = (int)q("SELECT count(*) $from $whereSql", $params)->fetchColumn();
+$pages  = max(1, (int)ceil($total / $perPage));
+$page   = min($page, $pages);
 $offset = ($page - 1) * $perPage;
 
 $rows = q("SELECT c.*, v.reg_no, cl.name AS client_name $from $whereSql
-           ORDER BY c.number DESC LIMIT $perPage OFFSET $offset", $params)->fetchAll();
+           ORDER BY c.issued_at DESC LIMIT $perPage OFFSET $offset", $params)->fetchAll();
 
-// Counts for the filter buttons
+// Counts for the filter chips
 $counts = q("SELECT
     count(*) AS all_count,
-    count(*) FILTER (WHERE status = 'issued' AND expiry_date >= current_date) AS valid_count,
-    count(*) FILTER (WHERE status = 'issued' AND expiry_date < current_date) AS expired_count,
+    count(*) FILTER (WHERE approval_status = 'pending') AS pending_count,
+    count(*) FILTER (WHERE approval_status = 'rejected') AS rejected_count,
+    count(*) FILTER (WHERE approval_status = 'approved' AND status = 'issued'
+                     AND expiry_date >= current_date) AS valid_count,
+    count(*) FILTER (WHERE approval_status = 'approved' AND status = 'issued'
+                     AND expiry_date < current_date) AS expired_count,
+    count(*) FILTER (WHERE status = 'superseded') AS superseded_count,
     count(*) FILTER (WHERE status = 'voided') AS voided_count
     FROM certificates")->fetch();
 
@@ -68,34 +86,45 @@ function page_link(array $overrides = []): string
     return 'index.php?' . http_build_query(array_filter($params, fn($v) => $v !== '' && $v !== null));
 }
 
-$expiring = q("SELECT c.number, c.expiry_date, v.reg_no, cl.name AS client_name
+// Only approved, current certificates can expire - a pending one has not started yet.
+$expiring = q("SELECT c.id, c.number, c.expiry_date, v.reg_no, cl.name AS client_name
                FROM certificates c
                JOIN vehicles v ON v.id = c.vehicle_id
                JOIN clients cl ON cl.id = c.client_id
-               WHERE c.status = 'issued'
+               WHERE c.approval_status = 'approved' AND c.status = 'issued'
                  AND c.expiry_date BETWEEN current_date AND current_date + 30
-                 AND NOT EXISTS (SELECT 1 FROM certificates n
-                                 WHERE n.vehicle_id = c.vehicle_id AND n.number > c.number)
                ORDER BY c.expiry_date")->fetchAll();
 
 layout_top('Certificates');
 ?>
 <h1>Certificates</h1>
 
+<?php if ((int)$counts['pending_count'] > 0): ?>
+  <p class="hint" style="text-align:left">
+    <?= (int)$counts['pending_count'] ?> certificate<?= $counts['pending_count'] == 1 ? '' : 's' ?>
+    waiting for accounts to confirm payment. They cannot be printed or downloaded until approved.
+  </p>
+<?php endif; ?>
+
 <form method="get" class="searchbar">
   <input name="q" value="<?= e($search) ?>" placeholder="Registration number, customer or certificate number">
   <input type="hidden" name="status" value="<?= e($status) ?>">
   <input type="hidden" name="per" value="<?= e((string)$perPage) ?>">
   <button type="submit">Search</button>
-  <?php if ($search !== ''): ?><a class="button secondary" href="<?= e(page_link(['q' => '', 'page' => 1])) ?>">Clear</a><?php endif; ?>
+  <?php if ($search !== ''): ?>
+    <a class="button secondary" href="<?= e(page_link(['q' => '', 'page' => 1])) ?>">Clear</a>
+  <?php endif; ?>
   <a class="button" href="certificate_new.php">New certificate</a>
 </form>
 
 <div class="filters">
   <?php foreach ([
       'all' => ['All', $counts['all_count']],
+      'pending' => ['Pending', $counts['pending_count']],
       'valid' => ['Valid', $counts['valid_count']],
       'expired' => ['Expired', $counts['expired_count']],
+      'superseded' => ['Superseded', $counts['superseded_count']],
+      'rejected' => ['Rejected', $counts['rejected_count']],
       'voided' => ['Voided', $counts['voided_count']],
   ] as $key => $info): ?>
     <a class="chip <?= $status === $key ? 'chip-on' : '' ?>"
@@ -106,10 +135,10 @@ layout_top('Certificates');
 </div>
 
 <table>
-  <tr><th>Cert No.</th><th>Registration No.</th><th>Owner</th><th>Type</th><th>Issued</th><th>Expires</th><th>Status</th><th></th></tr>
+  <tr><th>No.</th><th>Vehicle</th><th>Customer</th><th>Type</th><th>Issued</th><th>Expires</th><th>Status</th><th></th></tr>
   <?php foreach ($rows as $row): ?>
   <tr>
-    <td><?= e($row['number']) ?></td>
+    <td><?= e(certificate_label($row)) ?></td>
     <td><?= e($row['reg_no']) ?></td>
     <td><?= e($row['client_name']) ?></td>
     <td><?= e($row['type']) ?></td>
@@ -154,15 +183,16 @@ layout_top('Certificates');
 
 <h2>Expiring in the next 30 days</h2>
 <table>
-  <tr><th>Expires</th><th>Registration No.</th><th>Owner</th><th></th></tr>
+  <tr><th>Expires</th><th>No.</th><th>Vehicle</th><th>Customer</th><th></th></tr>
   <?php foreach ($expiring as $row): ?>
   <tr>
     <td><?= e(fmt_date($row['expiry_date'])) ?></td>
+    <td><?= e((string)$row['number']) ?></td>
     <td><?= e($row['reg_no']) ?></td>
     <td><?= e($row['client_name']) ?></td>
     <td><a href="certificate_new.php?reg=<?= urlencode($row['reg_no']) ?>">Renew</a></td>
   </tr>
   <?php endforeach; ?>
-  <?php if (!$expiring): ?><tr><td colspan="4">Nothing due in the next 30 days.</td></tr><?php endif; ?>
+  <?php if (!$expiring): ?><tr><td colspan="5">Nothing due in the next 30 days.</td></tr><?php endif; ?>
 </table>
 <?php layout_bottom(); ?>
