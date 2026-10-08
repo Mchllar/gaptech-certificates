@@ -97,6 +97,8 @@ button.danger { background: var(--red); }
 .status-valid { color:#1a7a3c; font-weight:600; }
 .status-expired { color:#a86b00; font-weight:600; }
 .status-voided { color:var(--red); font-weight:600; }
+.status-rejected { color:var(--red); font-weight:600; }
+
 .verify-result { background:#fff; border:1px solid var(--line); border-radius:8px; padding:16px; margin-bottom:18px; }
 .verify-status { font-size:24px; font-weight:700; margin:0 0 12px; }
 .status-box-valid .verify-status { color:#1a7a3c; }
@@ -221,6 +223,7 @@ modal-backdrop
 .modal .details { margin-bottom:12px; }
 .modal .button { width:auto; text-align:center; margin-top:6px; }
 .status-superseded { color:#a86b00; font-weight:600; }
+
 
 
 
@@ -357,7 +360,7 @@ body.plain footer { color: var(--muted); }
 
 /* certificate states */
 .status-pending { color:#8A5A00; font-weight:600; }
-.status-rejected { color:var(--red-700); font-weight:600; }
+/* .status-rejected { color:var(--red-700); font-weight:600; } */
 
 /* a pending certificate is flagged wherever it is listed */
 .badge-pending { display:inline-block; background:#FDF1DC; color:#8A5A00; border:1px solid #EFD39A;

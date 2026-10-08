@@ -35,13 +35,13 @@ $canEdit = $cert['approval_status'] !== 'pending';
 
   <dl class="cert-grid">
     <div><dt>Certificate no.</dt><dd><?= e(certificate_label($cert)) ?></dd></div>
-    <div><dt>Type</dt><dd><?= e($cert['type']) ?></dd></div>
+    <div><dt>Service Type</dt><dd><?= e($cert['type']) ?></dd></div>
     <div><dt>Vehicle</dt><dd><?= e($cert['reg_no']) ?> <span class="muted">(<?= e($d['vehicle']['make'] ?? '') ?>)</span></dd></div>
     <div><dt>Chassis no.</dt><dd><?= e($d['vehicle']['chassis_no'] ?? '') ?></dd></div>
     <div><dt>Serial no.</dt><dd><?= e($d['device']['serial_no'] ?? '') ?></dd></div>
     <div><dt>Contact</dt><dd><?= e($cert['client_phone']) ?></dd></div>
     <div><dt>Issue date</dt><dd><?= e(fmt_date($cert['issue_date'])) ?></dd></div>
-    <div><dt>Expires</dt><dd><?= e(fmt_date($cert['expiry_date'])) ?></dd></div>
+    <div><dt>Expiry</dt><dd><?= e(fmt_date($cert['expiry_date'])) ?></dd></div>
     <div><dt>Issued by</dt><dd><?= e((string)$cert['issued_by_name']) ?></dd></div>
     <div><dt>Approved by</dt><dd><?= e((string)$cert['approved_by_name']) ?>
       <?= $cert['approved_at'] ? '<span class="muted">&middot; ' . e(fmt_date(substr((string)$cert['approved_at'], 0, 10))) . '</span>' : '' ?></dd></div>

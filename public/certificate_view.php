@@ -5,7 +5,14 @@ require APP_DIR . '/certificates.php';
 require APP_DIR . '/views/layout.php';
 
 $user = require_staff();
-$cert = q('SELECT * FROM certificates WHERE id = ?', [(int)($_GET['id'] ?? 0)])->fetch();
+$id = (int)($_GET['id'] ?? 0);
+$cert = q("SELECT c.*,
+                  iss.name AS issued_by_name,
+                  ap.name  AS decided_by_name
+             FROM certificates c
+             LEFT JOIN users iss ON iss.id = c.issued_by
+             LEFT JOIN users ap  ON ap.id  = c.approved_by
+            WHERE c.id = ?", [$id])->fetch();
 if (!$cert) {
     http_response_code(404);
     exit('Certificate not found.');
@@ -38,16 +45,13 @@ layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
 ?>
 <h1>Certificate <?= e($cert['number']) ?> <span class="status-<?= strtolower($status) ?>"><?= e($status) ?></span></h1>
 <?php if ($user['role'] === 'administrator' && certificate_is_releasable($cert)): ?>
-  ... the existing actions block with Print, Download, Preview, Edit, Renew ...
 <?php elseif ($user['role'] === 'accounts'): ?>
 <div class="actions">
-  <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>" target="_blank">Preview</a>
-  <a class="button secondary" href="payments.php">Back to payments</a>
-</div>
+ 
 <?php else: ?>
-  ... the existing "not releasable" branch ...
+  <!-- ... the existing "not releasable" branch ... -->
 <?php endif; ?>
-<div class="actions">
+<?php if ($user['role'] === 'administrator' && certificate_is_releasable($cert)): ?><div class="actions">
   <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>&amp;print=1" target="_blank">Print</a>
   <?php if ($pdfEnabled): ?>
     <a class="button" href="download.php?id=<?= (int)$cert['id'] ?>">Download PDF</a>
@@ -62,6 +66,17 @@ layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
     <a class="button" href="certificate_new.php?reg=<?= urlencode($d['vehicle']['reg_no']) ?>">Renew</a>
   <?php endif; ?>
 </div>
+<?php else: ?>
+<div class="actions">
+  <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>" target="_blank">Preview</a>
+</div>
+<?php endif; ?>
+
+<?php if ($user['role'] === 'administrator'): ?>
+  <?php if ($cert['status'] === 'voided' && trim((string)$cert['void_reason']) !== ''): ?>
+    <tr><th>Void reason</th><td colspan="3"><?= e($cert['void_reason']) ?></td></tr>
+  <?php endif; ?>
+<?php endif; ?>
 
 <table class="details">
   <tr><th>Customer</th><td><?= e($d['client']['name']) ?></td>
@@ -75,32 +90,40 @@ layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
       <th>Date installed</th><td><?= e($d['installation']['installed_on_fmt']) ?></td>
   </tr>
   <tr>
-    <th>Type</th><td><?= e($cert['type']) ?></td>
-    <th>Payment ref.</th>
-    <td><?= $cert['payment_ref'] !== '' ? '<code>' . e($cert['payment_ref']) . '</code>' : '&mdash;' ?></td>
-  </tr>   
-  <tr><th>Issued</th><td><?= e(fmt_date($cert['issue_date'])) ?></td>
-      <th>Expiry</th><td><?= e(fmt_date($cert['expiry_date'])) ?></td>  
-  </tr>
-  <tr><th>Prints</th><td><?= (int)$cert['print_count'] ?></td>
-      <th>Client downloads</th><td><?= (int)$cert['download_count'] ?></td>
-  </tr>
-  <tr>
-    <th>Verification link</th>
-    <td><a href= "<?= e(verify_url($cert)) ?>">Click to Verify</a> </td>
-    <th>Status</th>
-    <td><?= $cert['approved_at'] ? e(fmt_date(substr((string)$cert['approved_at'], 0, 10))) : 'Pending Approved' ?></td>
-  </tr>
+    <th>Type</th><td><?= e($cert['type']) ?>
+  </td>
+   <?php if ($cert['approval_status'] === 'approved'): ?>
+    <tr><th>Payment ref.</th>
+        <td><?= $cert['payment_ref'] !== '' ? '<code>' . e($cert['payment_ref']) . '</code>' : '&mdash;' ?></td>
+        <th>Approved</th>
+        <td><?= $cert['approved_at'] ? e(fmt_date(substr((string)$cert['approved_at'], 0, 10))) : '&mdash;' ?></td></tr>
+    <tr><th>Prints</th><td><?= (int)$cert['print_count'] ?></td>
+        <th>Client downloads</th><td><?= (int)$cert['download_count'] ?></td></tr>
+    <tr><th>Verification link</th>
+        <td colspan="3"><a href="verify.php?t=<?= e($cert['verify_token']) ?>" target="_blank">Click to verify</a></td>
+    </tr>
+     <?php elseif ($cert['approval_status'] === 'rejected'): ?>
+    <th>Rejected</th>
+        <td><?= $cert['approved_at'] ? e(fmt_date(substr((string)$cert['approved_at'], 0, 10))) : '&mdash;' ?></td>
+    <tr>
+      <th>Rejected by</th><td><?= e((string)$cert['decided_by_name']) ?></td>
+      <th>Reason</th><td colspan="3"><?= e((string)$cert['rejection_reason']) ?></td>
+    </tr>
+
+  <?php else: ?>
+    <tr><th>Status</th><td colspan="3">Waiting for accounts to confirm payment.
+        It has no certificate number and cannot be printed or downloaded until approved.</td></tr>
+  <?php endif; ?>
 </table>
 
 <?php if ($cert['status'] === 'voided'): ?>
-  <p class="error">Voided: <?= e($cert['void_reason']) ?></p>
-<?php else: ?>
-<form method="post" class="void-form" onsubmit="return confirm('Void this certificate? This cannot be undone.');">
-  <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
-  <input type="hidden" name="action" value="void">
-  <label>Void this certificate <input name="reason" placeholder="Reason"></label>
-  <button type="submit" class="danger">Void</button>
-</form>
+  <?php if (trim((string)$cert['void_reason']) !== ''): ?>
+    <p class="error">Reason: <?= e($cert['void_reason']) ?></p>
+  <?php endif; ?>
+<?php elseif ($user['role'] === 'administrator'): ?>
+    <?php if ($cert['status'] === 'voided' && trim((string)$cert['void_reason']) !== ''): ?>
+    <tr><th>Void reason</th><td colspan="3"><?= e($cert['void_reason']) ?></td></tr>
+  <?php endif; ?>
 <?php endif; ?>
+
 <?php layout_bottom(); ?>
