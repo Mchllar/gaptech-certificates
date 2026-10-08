@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 
 layout_top('Change password', $me ? 'staff' : 'public');
-layout_back($me['role'] === 'accounts' ? 'approvals.php' : 'index.php', 'Back');
+layout_back($me['role'] === 'accounts' ? 'approvals.php' : 'index.php', 'Back to certificates');
 
 ?>
 <h1>Change your password</h1>
@@ -83,7 +83,7 @@ layout_back($me['role'] === 'accounts' ? 'approvals.php' : 'index.php', 'Back');
     <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
 
     <?php if ($me): ?>
-      <p class="hint">Signed in as <strong><?= e($me['email']) ?></strong>.</p>
+      <p class="hint">You're Signed in as <strong style="color:blue;" ><?= e($me['username']) ?></strong>.</p>
     <?php else: ?>
       <label>E-mail <input name="email" type="email" value="<?= e($email) ?>" required autofocus></label>
     <?php endif; ?>

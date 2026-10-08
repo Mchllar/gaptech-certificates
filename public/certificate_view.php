@@ -5,6 +5,11 @@ require APP_DIR . '/certificates.php';
 require APP_DIR . '/views/layout.php';
 
 $user = require_staff();
+
+// For a certificate that is no longer current, find what replaced it.
+$current = null;
+$awaiting = null;
+
 $id = (int)($_GET['id'] ?? 0);
 $cert = q("SELECT c.*,
                   iss.name AS issued_by_name,
@@ -16,6 +21,24 @@ $cert = q("SELECT c.*,
 if (!$cert) {
     http_response_code(404);
     exit('Certificate not found.');
+}
+// For a certificate that is no longer current, find what replaced it.
+$current = null;
+$awaiting = null;
+if (!certificate_is_releasable($cert)) {
+    $current = q("SELECT id, number, expiry_date FROM certificates
+                   WHERE vehicle_id = ? AND id <> ?
+                     AND approval_status = 'approved' AND status = 'issued'
+                     AND expiry_date >= current_date
+                   ORDER BY issue_date DESC, number DESC LIMIT 1",
+                 [$cert['vehicle_id'], $cert['id']])->fetch() ?: null;
+
+    if (!$current) {
+        $awaiting = q("SELECT id FROM certificates
+                        WHERE vehicle_id = ? AND id <> ? AND approval_status = 'pending'
+                        ORDER BY id DESC LIMIT 1",
+                      [$cert['vehicle_id'], $cert['id']])->fetch() ?: null;
+    }
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'void') {
@@ -37,6 +60,10 @@ $d = json_decode($cert['snapshot'], true);
 $status = certificate_status($cert);
 $pdfEnabled = !empty($config['wkhtmltopdf']);
 
+// A renewal continues from where the old term ends, or from today if it has lapsed.
+$renewStart   = max(strtotime(date('Y-m-d')), strtotime($cert['expiry_date'] . ' +1 day'));
+$renewDefault = date('Y-m-d', strtotime('+1 year -1 day', $renewStart));
+
 layout_top('Certificate ' . $cert['number']);
 
 layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
@@ -44,6 +71,15 @@ layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
 
 ?>
 <h1>Certificate <?= e($cert['number']) ?> <span class="status-<?= strtolower($status) ?>"><?= e($status) ?></span></h1>
+
+<?php if (!empty($_SESSION['flash_error'])): ?>
+  <p class="error"><?= e($_SESSION['flash_error']) ?></p><?php unset($_SESSION['flash_error']); ?>
+<?php endif; ?>
+<?php if (!empty($_SESSION['flash_ok'])): ?>
+  <p class="hint"><?= e($_SESSION['flash_ok']) ?></p><?php unset($_SESSION['flash_ok']); ?>
+<?php endif; ?>
+
+
 <?php if ($user['role'] === 'administrator' && certificate_is_releasable($cert)): ?>
 <?php elseif ($user['role'] === 'accounts'): ?>
 <div class="actions">
@@ -63,8 +99,44 @@ layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
   <?php if ($status === 'Valid'): ?>
     <a class="button" href="certificate_edit.php?id=<?= (int)$cert['id'] ?>">Edit certificate</a>
   <?php elseif ($status === 'Expired'): ?>
-    <a class="button" href="certificate_new.php?reg=<?= urlencode($d['vehicle']['reg_no']) ?>">Renew</a>
-  <?php endif; ?>
+    <button type="button" class="button" id="renew-open">Renew</button>  <?php endif; ?>
+
+    <div id="renew-modal" class="modal" hidden>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="renew-title">
+    <div class="modal-head">
+      <h2 id="renew-title">Renew certificate</h2>
+      <button type="button" class="modal-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p class="modal-meta">Everything below is carried over from certificate
+        <?= e(certificate_label($cert)) ?>. Only the expiry date can change.</p>
+
+      <dl class="cert-grid">
+        <div><dt>Vehicle</dt><dd><?= e($d['vehicle']['reg_no']) ?></dd></div>
+        <div><dt>Customer</dt><dd><?= e($d['client']['name'] ?? '') ?></dd></div>
+        <div><dt>Chassis no.</dt><dd><?= e($d['vehicle']['chassis_no'] ?? '') ?></dd></div>
+        <div><dt>Serial no.</dt><dd><?= e($d['device']['serial_no'] ?? '') ?></dd></div>
+      </dl>
+
+      <form method="post" action="renew.php" class="pay-edit">
+        <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+        <input type="hidden" name="id" value="<?= (int)$cert['id'] ?>">
+
+        <label>New expiry date <span class="req">*</span>
+          <input type="date" name="expiry_date" value="<?= e($renewDefault) ?>"
+                 min="<?= e(date('Y-m-d', strtotime('+1 day'))) ?>" required>
+        </label>
+
+        <p class="modal-meta">Issued today, <?= e(fmt_date(date('Y-m-d'))) ?>.
+          It goes to accounts for approval and takes its number once they confirm payment.</p>
+
+        <div class="pay-edit-actions">
+          <button type="submit">Create renewal</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 </div>
 <?php else: ?>
 <div class="actions">
@@ -79,34 +151,52 @@ layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
 <?php endif; ?>
 
 <table class="details">
-  <tr><th>Customer</th><td><?= e($d['client']['name']) ?></td>
-      <th>Contact</th><td><?= e($d['client']['phone']) ?></td>
-  </tr>
-  <tr><th>Vehicle</th><td><?= e($d['vehicle']['reg_no']) ?> (<?= e($d['vehicle']['make']) ?>)</td>
-      <th>Chassis no.</th><td><?= e($d['vehicle']['chassis_no']) ?></td>
-  </tr>
-  <tr>
-      <th>Serial no.</th><td><?= e($d['device']['serial_no']) ?></td>
-      <th>Date installed</th><td><?= e($d['installation']['installed_on_fmt']) ?></td>
-  </tr>
-  <tr>
-    <th>Type</th><td><?= e($cert['type']) ?>
-  </td>
+  <tr><th>Customer</th><td><?= e($d['client']['name']) ?></td></tr>
+      <th>Contact</th><td><?= e($d['client']['phone']) ?></td></tr>
+      <th>Vehicle</th><td><?= e($d['vehicle']['reg_no']) ?> (<?= e($d['vehicle']['make']) ?>)</td></tr>
+      <th>Chassis no.</th><td><?= e($d['vehicle']['chassis_no']) ?></td></tr>
+      <th>Serial no.</th><td><?= e($d['device']['serial_no']) ?></td></tr>
+      <th>Date installed</th><td><?= e($d['installation']['installed_on_fmt']) ?></td></tr>
+      <th>Type</th><td><?= e($cert['type']) ?></tr>
    <?php if ($cert['approval_status'] === 'approved'): ?>
-    <tr><th>Payment ref.</th>
-        <td><?= $cert['payment_ref'] !== '' ? '<code>' . e($cert['payment_ref']) . '</code>' : '&mdash;' ?></td>
-        <th>Approved</th>
+      <th>Payment ref.</th>
+        <td><?= $cert['payment_ref'] !== '' ? '<code>' . e($cert['payment_ref']) . '</code>' : '&mdash;' ?></td></tr>
+        <th>Date approved</th>
         <td><?= $cert['approved_at'] ? e(fmt_date(substr((string)$cert['approved_at'], 0, 10))) : '&mdash;' ?></td></tr>
-    <tr><th>Prints</th><td><?= (int)$cert['print_count'] ?></td>
+    <tr><th>Prints</th><td><?= (int)$cert['print_count'] ?></td></tr>
         <th>Client downloads</th><td><?= (int)$cert['download_count'] ?></td></tr>
-    <tr><th>Verification link</th>
-        <td colspan="3"><a href="verify.php?t=<?= e($cert['verify_token']) ?>" target="_blank">Click to verify</a></td>
-    </tr>
+      <?php if (certificate_is_releasable($cert)): ?>
+    <!-- <tr><th>Verification link</th>
+        <td colspan="3"><a href="verify.php?t=<?= e($cert['verify_token']) ?>" target="_blank">Click to verify</a></td></tr> -->
+
+  <?php elseif ($current): ?>
+    <tr><th>Current certificate</th>
+        <td colspan="3">
+          <a href="certificate_view.php?id=<?= (int)$current['id'] ?>"><?= e((string)$current['number']) ?></a>
+          &mdash; valid until <?= e(fmt_date($current['expiry_date'])) ?>
+        </td></tr>
+
+  <?php elseif ($awaiting): ?>
+    <tr><th>Current certificate</th>
+        <td colspan="3">
+          None yet &mdash; a replacement is
+          <a href="certificate_view.php?id=<?= (int)$awaiting['id'] ?>">waiting for accounts to approve</a>.
+        </td></tr>
+
+  <?php else: ?>
+    <tr><th>Current certificate</th>
+        <td colspan="3">
+          This vehicle has no valid certificate.
+          <?php if ($user['role'] === 'administrator'): ?>
+            <a href="certificate_new.php?reg=<?= urlencode($d['vehicle']['reg_no']) ?>">Issue one</a>
+          <?php endif; ?>
+        </td></tr>
+  <?php endif; ?>
      <?php elseif ($cert['approval_status'] === 'rejected'): ?>
     <th>Rejected</th>
-        <td><?= $cert['approved_at'] ? e(fmt_date(substr((string)$cert['approved_at'], 0, 10))) : '&mdash;' ?></td>
+        <td><?= $cert['approved_at'] ? e(fmt_date(substr((string)$cert['approved_at'], 0, 10))) : '&mdash;' ?></td></tr>
     <tr>
-      <th>Rejected by</th><td><?= e((string)$cert['decided_by_name']) ?></td>
+      <th>Rejected by</th><td><?= e((string)$cert['decided_by_name']) ?></td></tr>
       <th>Reason</th><td colspan="3"><?= e((string)$cert['rejection_reason']) ?></td>
     </tr>
 
@@ -126,4 +216,27 @@ layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
   <?php endif; ?>
 <?php endif; ?>
 
+
+
+<script>
+(function () {
+  var modal = document.getElementById('renew-modal');
+  var open  = document.getElementById('renew-open');
+  if (!modal || !open) { return; }
+
+  function shut() { modal.setAttribute('hidden', ''); document.body.style.overflow = ''; }
+
+  open.addEventListener('click', function () {
+    modal.removeAttribute('hidden');
+    document.body.style.overflow = 'hidden';
+    modal.querySelector('input[name="expiry_date"]').focus();
+  });
+  modal.addEventListener('click', function (ev) {
+    if (ev.target === modal || ev.target.classList.contains('modal-close')) { shut(); }
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && !modal.hasAttribute('hidden')) { shut(); }
+  });
+})();
+</script>
 <?php layout_bottom(); ?>

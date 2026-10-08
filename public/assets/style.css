@@ -448,6 +448,7 @@ table.register { table-layout: fixed; width: 100%; }
               line-height: 1.6; color: #27303D; white-space: pre-wrap; word-wrap: break-word; }
 
               #note-body { flex: 1 1 auto; overflow-y: auto; padding: 0; white-space: normal; }
+.modal[hidden] { display: none !important; }
 
 .cert-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 28px; margin: 14px 0 0; }
 .cert-grid > div { min-width: 0; }
@@ -508,3 +509,35 @@ table.register { min-width: 900px; }
 .back-link { display: inline-flex; align-items: center; gap: 6px; margin: 0 0 14px;
              font-size: 13px; color: #5A6472; text-decoration: none; }
 .back-link:hover { color: #0D4F72; text-decoration: underline; }
+
+
+.page-title { font-size: 1.75rem; font-weight: 700; color: #0f172a; margin: 0 0 1rem;
+              padding-left: 0.875rem; border-left: 4px solid #1890D0;
+              letter-spacing: -0.025em; line-height: 1.25; }
+.warn-note { font-size: 12px; color: #8A5A00; background: #FFF8EC;
+             border-left: 3px solid #E8B64C; padding: 8px 12px;
+             border-radius: 0 4px 4px 0; margin: 4px 0 14px; }
+
+/* forms inside a dialog sit tight */
+.modal .modal-body { padding: 16px 20px 20px; }
+.modal .pay-edit { margin: 0; padding: 0; border-top: 0; }
+
+.modal .pay-edit label { display: block; margin: 0 0 12px; padding: 0;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .4px; color: #8793A3; line-height: 1.3; }
+
+.modal .pay-edit input,
+.modal .pay-edit select,
+.modal .pay-edit textarea { display: block; width: 100%; margin: 4px 0 0;
+    padding: 8px 10px; border: 1px solid #D9E2EC; border-radius: 6px;
+    box-sizing: border-box; font: inherit; font-size: 13px; font-weight: 400;
+    text-transform: none; letter-spacing: 0; color: #27303D; background: #fff; }
+
+.modal .pay-edit select { height: auto; }
+.modal .pay-edit textarea { resize: vertical; }
+.modal .pay-edit .warn-note { margin: 2px 0 14px; }
+.modal .pay-edit-actions { margin: 4px 0 0; }
+
+.modal .modal-body { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
+.modal .pay-edit-actions { position: sticky; bottom: 0; background: #fff;
+    margin-top: 8px; padding: 12px 0 2px; border-top: 1px solid #E6EDF4; }

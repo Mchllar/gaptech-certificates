@@ -4,15 +4,16 @@ require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/views/layout.php';
 
 require_admin();
+
 $clientId = (int)($_GET['client_id'] ?? 0);
-$client = $clientId ? q('SELECT * FROM clients WHERE id = ?', [$clientId])->fetch() : null;
+$client   = $clientId ? q('SELECT * FROM clients WHERE id = ?', [$clientId])->fetch() : null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $postedId = (int)($_POST['client_id'] ?? 0);
-    $client = q('SELECT * FROM clients WHERE id = ?', [$postedId])->fetch();
+    $client   = q('SELECT * FROM clients WHERE id = ?', [$postedId])->fetch();
     $username = trim((string)($_POST['username'] ?? ''));
-    $email = trim((string)($_POST['email'] ?? ''));
+    $email    = trim((string)($_POST['email'] ?? ''));
     $password = (string)($_POST['password'] ?? '');
 
     if (!$client) {
@@ -44,45 +45,189 @@ if ($client) {
 }
 $suggestedPass = 'Gap@' . random_int(100000, 999999);
 
-layout_top('Client portal access',);
+// The credentials table is paged on its own, so its parameters are prefixed with l.
+$withLogin = array_values(array_filter($clients, fn($r) => !empty($r['has_login'])));
+
+$lper = (int)($_GET['lper'] ?? 10);
+if (!in_array($lper, [10, 25, 50, 100], true)) {
+    $lper = 10;
+}
+$ltotal    = count($withLogin);
+$lpages    = max(1, (int)ceil($ltotal / $lper));
+$lpage     = min(max(1, (int)($_GET['lpage'] ?? 1)), $lpages);
+$loffset   = ($lpage - 1) * $lper;
+$loginRows = array_slice($withLogin, $loffset, $lper);
+
+/** A link into the credentials table, keeping whatever else is in the URL. */
+function login_link(array $overrides = []): string
+{
+    $params = array_merge($_GET, $overrides);
+    return 'client_access.php?' . http_build_query(array_filter($params,
+        fn($v) => $v !== '' && $v !== null)) . '#logins';
+}
+
+// A client in the URL means one was picked, or a save has just come back with a message.
+// Only reopen when a save came back with something to fix.
+$openCreds = !empty($_GET['open']);
+
+layout_top('Client portal access');
 layout_back('index.php', 'Back to certificates');
 ?>
-<h1 style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 1.75rem; font-weight: 700; color: #0f172a; margin: 0 0 1rem 0; padding-left: 0.875rem; border-left: 4px solid #3b82f6; letter-spacing: -0.025em; line-height: 1.25;">Client Portal Access</h1>
-<p class="hint">Assign a client <strong style="color:green;">login credentials</strong> for the Download Portal.</p>
+<h1 class="page-title">Client Portal Access</h1>
+<p class="hint">Assign or change the username and password clients use to download their own certificates.</p>
 
-<form method="post" class="narrow" style="width:auto;">
-  <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
-  <label>Client
-    <select name="client_id" required onchange="location.href='client_access.php?client_id=' + this.value">
-      <option value="">Choose a client</option>
-      <?php foreach ($clients as $row): ?>
-        <option value="<?= (int)$row['id'] ?>" <?= $client && (int)$client['id'] === (int)$row['id'] ? 'selected' : '' ?>>
-          <?= e($row['name']) ?><?= $row['has_login'] ? ' (' . e($row['username']) . ')' : '' ?>
-        </option>
-      <?php endforeach; ?>
-    </select>
-  </label>
-  <label>Username <input name="username" required autocapitalize="none"
-      value="<?= e($suggestedUser) ?>"></label>
-  <label>E-mail (optional) <input name="email" type="email" value="<?= e($client['email'] ?? '') ?>"></label>
-  <label>Password <input name="password" type="text" required minlength="8"
-      value="<?= e($suggestedPass) ?>"></label>
-  <button type="submit">Save Credentials</button>
-</form>
+<!-- <h2 id="logins">Clients with credentials</h2> -->
 
-<p class="hint" style="color:red;">(Setting a password again replaces the old one.)</p>
-
-<h2>Clients With Credentials</h2>
 <table>
-  <tr><th>Client</th><th>Username</th><th>E-mail</th><th></th></tr>
-  <?php foreach ($clients as $row): ?>
-    <?php if (!$row['has_login']) { continue; } ?>
+  <tr><th>Index</th><th>Client</th><th>Username</th><th>E-mail</th><th></th></tr>
+  <?php foreach ($loginRows as $i => $row): ?>
     <tr>
+      <td><?= $loffset + $i + 1 ?></td>
       <td><?= e($row['name']) ?></td>
       <td><?= e($row['username']) ?></td>
       <td><?= e($row['email']) ?></td>
-      <td><a href="client_access.php?client_id=<?= (int)$row['id'] ?>">Change</a></td>
+      <td><button type="button" class="link-button creds-edit"
+                  data-client-id="<?= (int)$row['id'] ?>">Change</button></td>
     </tr>
   <?php endforeach; ?>
+  <?php if (!$loginRows): ?>
+    <tr><td colspan="5">No client has portal credentials yet.</td></tr>
+  <?php endif; ?>
 </table>
+
+<div class="pager">
+  <form method="get" class="per-page" action="client_access.php">
+    <?php foreach ($_GET as $k => $v): ?>
+      <?php if ($k !== 'lper' && $k !== 'lpage'): ?>
+        <input type="hidden" name="<?= e($k) ?>" value="<?= e((string)$v) ?>">
+      <?php endif; ?>
+    <?php endforeach; ?>
+    <label>Rows per page
+      <select name="lper" onchange="this.form.submit()">
+        <?php foreach ([10, 25, 50, 100] as $n): ?>
+          <option value="<?= $n ?>" <?= $lper === $n ? 'selected' : '' ?>><?= $n ?></option>
+        <?php endforeach; ?>
+      </select>
+    </label>
+  </form>
+
+  <span class="pager-info">
+    <?= $ltotal ? ($loffset + 1) . '&ndash;' . min($loffset + $lper, $ltotal) : 0 ?> of <?= $ltotal ?>
+  </span>
+
+  <span class="pager-buttons">
+    <?php if ($lpage > 1): ?>
+      <a class="button secondary" href="<?= e(login_link(['lpage' => 1])) ?>">&laquo; First</a>
+      <a class="button secondary" href="<?= e(login_link(['lpage' => $lpage - 1])) ?>">Previous</a>
+    <?php endif; ?>
+    <span class="pager-page">Page <?= $lpage ?> of <?= $lpages ?></span>
+    <?php if ($lpage < $lpages): ?>
+      <a class="button secondary" href="<?= e(login_link(['lpage' => $lpage + 1])) ?>">Next</a>
+      <a class="button secondary" href="<?= e(login_link(['lpage' => $lpages])) ?>">Last &raquo;</a>
+    <?php endif; ?>
+  </span>
+</div>
+
+<div class="actions">
+  <button type="button" class="button" id="creds-open">Assign credentials</button>
+</div>
+
+<div id="creds-modal" class="modal" <?= $openCreds ? '' : 'hidden' ?>>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="creds-title">
+    <div class="modal-head">
+      <h2 id="creds-title">Assign credentials</h2>
+      <button type="button" class="modal-close" aria-label="Close">&times;</button>
+    </div>
+
+    <div class="modal-body">
+      <form method="post" class="pay-edit">
+        <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+
+        <label>Client <span class="req">*</span>
+          <select name="client_id" required>
+            <option value="">Choose a client</option>
+            <?php foreach ($clients as $row): ?>
+              <option value="<?= (int)$row['id'] ?>"
+                      <?= $client && (int)$client['id'] === (int)$row['id'] ? 'selected' : '' ?>>
+                <?= e($row['name']) ?><?= $row['has_login'] ? ' (' . e($row['username']) . ')' : '' ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+
+        <label>Username <span class="req">*</span>
+          <input name="username" required autocapitalize="none" value="<?= e($suggestedUser) ?>">
+        </label>
+
+        <label>E-mail (optional)
+          <input name="email" type="email" value="<?= e($client['email'] ?? '') ?>">
+        </label>
+
+        <label>Password <span class="req">*</span>
+          <input name="password" type="text" required minlength="8" value="<?= e($suggestedPass) ?>">
+        </label>
+
+        <p class="warn-note">Setting a password again replaces the old one.
+          Give it to the client by phone or in person, never by e-mail.</p>
+
+        <div class="pay-edit-actions">
+          <button type="submit">Save credentials</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+(
+  
+  function () {
+    var modal = document.getElementById('creds-modal');
+    var sel  = modal.querySelector('select[name="client_id"]');
+    var user = modal.querySelector('input[name="username"]');
+    var mail = modal.querySelector('input[name="email"]');
+
+  function fillFromClient() {
+    var opt = sel ? sel.options[sel.selectedIndex] : null;
+    if (!opt || !opt.value) { return; }
+    user.value = opt.dataset.username || opt.dataset.suggest || '';
+    mail.value = opt.dataset.email || '';
+  }
+
+  if (!modal) { return; }
+
+  function show() {
+    modal.removeAttribute('hidden');
+    document.body.style.overflow = 'hidden';
+    var first = modal.querySelector('select, input');
+    if (first) { first.focus(); }
+  }
+  function shut() {
+    modal.setAttribute('hidden', '');
+    document.body.style.overflow = '';
+  }
+
+  var opener = document.getElementById('creds-open');
+  if (opener) { opener.addEventListener('click', show); }
+
+    if (sel) { sel.addEventListener('change', fillFromClient); }
+
+    document.querySelectorAll('.creds-edit').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (sel) { sel.value = btn.dataset.clientId; fillFromClient(); }
+      show();
+    });
+  });
+
+  modal.addEventListener('click', function (ev) {
+    if (ev.target === modal || ev.target.classList.contains('modal-close')) { shut(); }
+  });
+  document.addEventListener('keydown', function (ev) {
+    if (ev.key === 'Escape' && !modal.hasAttribute('hidden')) { shut(); }
+  });
+
+  // The page can load with the dialog already open, so lock the scroll then too.
+  if (!modal.hasAttribute('hidden')) { document.body.style.overflow = 'hidden'; }
+})();
+</script>
 <?php layout_bottom(); ?>

@@ -133,7 +133,7 @@ function field(string $name, string $label, string $value, array $opts = []): vo
 layout_top('New certificate');
 layout_back('index.php', 'Back to certificates');
 ?>
-<h1>New certificate</h1>
+<h1>New Certificate</h1>
 <p class="hint">All fields are required except the receipt reference. The certificate number, governor model,
 set speed, technician and expiry date are filled in automatically from Settings when you save.</p>
 
