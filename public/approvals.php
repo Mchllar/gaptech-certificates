@@ -53,17 +53,11 @@ $pending = q("SELECT c.*, v.reg_no, cl.name AS client_name, u.name AS issued_by_
               WHERE c.approval_status = 'pending'
               ORDER BY c.issued_at")->fetchAll();
 
-$recent = q("SELECT c.*, v.reg_no, cl.name AS client_name, u.name AS approved_by_name
-             FROM certificates c
-             JOIN vehicles v ON v.id = c.vehicle_id
-             JOIN clients cl ON cl.id = c.client_id
-             LEFT JOIN users u ON u.id = c.approved_by
-             WHERE c.approval_status IN ('approved', 'rejected') AND c.approved_at IS NOT NULL
-             ORDER BY c.approved_at DESC LIMIT 15")->fetchAll();
-
 layout_top('Approvals');
+layout_back('payments.php', 'Back to payments');
+
 ?>
-<h1>Certificates awaiting approval <span class="chip-count"><?= count($pending) ?></span></h1>
+<h1>Certificates Awaiting Approval</h1>
 <p class="hint">A certificate can only be printed or downloaded once the payment is on record.
    Paste the payment message, check the reference, then approve.</p>
 
@@ -78,11 +72,12 @@ layout_top('Approvals');
     <table class="details">
       <tr><th>Vehicle</th><td><?= e($d['vehicle']['reg_no']) ?> (<?= e($d['vehicle']['make']) ?>)</td>
           <th>Chassis no.</th><td><?= e($d['vehicle']['chassis_no']) ?></td></tr>
-      <tr><th>Serial no.</th><td><?= e($d['device']['serial_no']) ?></td>
-          <th>Type</th><td><?= e($cert['type']) ?></td></tr>
+      <tr><th>Governor</th><td><?= e($d['device']['model']) ?></td>
+          <th>Serial no.</th><td><?= e($d['device']['serial_no']) ?></td></tr>
+      <tr><th>Type</th><td><?= e($cert['type']) ?></td>
+          <th>Contact</th><td><?= e($d['client']['phone']) ?></td></tr>
       <tr><th>Issue date</th><td><?= e(fmt_date($cert['issue_date'])) ?></td>
           <th>Expires</th><td><?= e(fmt_date($cert['expiry_date'])) ?></td></tr>
-      <tr><th>Contact</th><td colspan="3"><?= e($d['client']['phone']) ?></td></tr>
     </table>
 
     <p><a class="button secondary" href="sheet.php?id=<?= (int)$cert['id'] ?>" target="_blank">Preview the certificate</a></p>
@@ -97,23 +92,28 @@ layout_top('Approvals');
 
       <fieldset>
         <legend>Payment</legend>
+        <?php if (trim((string)($cert['payment_ref'] ?? '')) !== ''): ?>
+          <p class="hint" style="text-align:left; margin:0 0 10px; color:#8A5A00">
+            The administrator who issued this recorded a payment. Check it against the
+            statement before approving &mdash; it has not been verified by accounts.</p>
+        <?php endif; ?>
         <label class="field" style="width:100%">Payment message
           <span class="field-row">
             <textarea name="payment_note" id="note" rows="3"
               placeholder="Paste the full M-Pesa or bank message here"
               style="width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:6px;
-                     font-family:inherit; font-size:14px; resize:vertical"><?= e($_POST['payment_note'] ?? '') ?></textarea>
+                     font-family:inherit; font-size:14px; resize:vertical"><?= e($_POST['payment_note'] ?? $cert['payment_note'] ?? '') ?></textarea>
           </span>
         </label>
         <label class="field">Reference code <span class="req">*</span>
           <span class="field-row">
             <input name="payment_ref" id="ref" required maxlength="40"
-                   value="<?= e($_POST['payment_ref'] ?? '') ?>"
+                   value="<?= e($_POST['payment_ref'] ?? $cert['payment_ref'] ?? '') ?>"
                    style="text-transform:uppercase">
           </span>
         </label>
         <p class="hint" style="text-align:left; margin:0">The reference is checked against every other
-           certificate, so a payment reference cannot be reused.</p>
+           certificate, so one payment cannot approve two.</p>
       </fieldset>
 
       <button type="submit" name="action" value="approve">Approve and issue the number</button>
@@ -131,7 +131,7 @@ layout_top('Approvals');
 <?php endif; ?>
 
 <table>
-  <tr><th>Draft No.</th><th>Vehicle</th><th>Customer</th><th>Type</th><th>Issued</th><th>By</th><th></th></tr>
+  <tr><th>Draft</th><th>Vehicle</th><th>Customer</th><th>Type</th><th>Issued</th><th>By</th><th></th></tr>
   <?php foreach ($pending as $row): ?>
   <tr<?= $cert && (int)$cert['id'] === (int)$row['id'] ? ' style="background:#EAF1FB"' : '' ?>>
     <td><?= e(draft_ref($row)) ?></td>
@@ -144,24 +144,6 @@ layout_top('Approvals');
   </tr>
   <?php endforeach; ?>
   <?php if (!$pending): ?><tr><td colspan="7">Nothing waiting. Everything issued has been dealt with.</td></tr><?php endif; ?>
-</table>
-
-<h2>Recently Reviewed</h2>
-<table>
-  <tr><th>No.</th><th>Vehicle</th><th>Customer</th><th>Review</th><th>Reference</th><th>Date</th><th>By</th></tr>
-  <?php foreach ($recent as $row): ?>
-  <tr>
-    <td><?= e(certificate_label($row)) ?></td>
-    <td><?= e($row['reg_no']) ?></td>
-    <td><?= e($row['client_name']) ?></td>
-    <td class="<?= $row['approval_status'] === 'approved' ? 'status-valid' : 'status-voided' ?>">
-      <?= $row['approval_status'] === 'approved' ? 'Approved' : 'Rejected' ?></td>
-    <td><?= e((string)$row['payment_ref']) ?></td>
-    <td><?= e(fmt_date(substr((string)$row['approved_at'], 0, 10))) ?></td>
-    <td><?= e((string)$row['approved_by_name']) ?></td>
-  </tr>
-  <?php endforeach; ?>
-  <?php if (!$recent): ?><tr><td colspan="7">Not Record.</td></tr><?php endif; ?>
 </table>
 
 <script>

@@ -1,0 +1,99 @@
+/* ===========================================================================
+   GAPTECH top bar
+   Pairs with sidenav.css. Everything is prefixed gt- so it cannot collide
+   with the rest of style.css.
+   =========================================================================== */
+
+:root { --gt-top-h: 62px; }
+
+/* room for the fixed bar */
+body { padding-top: var(--gt-top-h); }
+
+.gt-topbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 1002;
+  height: var(--gt-top-h);
+  display: flex; align-items: center;
+  padding: 0 20px 0 70px;            /* 70px leaves room for the menu button */
+  background: rgba(255,255,255,.92);
+  backdrop-filter: saturate(160%) blur(8px);
+  border-bottom: 1px solid var(--gt-line, #E4EBF2);
+  box-shadow: 0 1px 3px rgba(13,79,114,.05);
+}
+
+/* the brand ribbon across the very top */
+.gt-topbar::before {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg,
+    var(--gt-green, #8CC63F) 0%,
+    var(--gt-blue,  #1890D0) 45%,
+    var(--gt-navy,  #0D4F72) 100%);
+}
+
+/* ---- left: where you are ---- */
+.gt-top-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+
+.gt-top-mark {
+  display: flex; align-items: baseline; gap: 1px;
+  font-size: 15px; font-weight: 800; letter-spacing: -.2px;
+  white-space: nowrap;
+}
+.gt-top-mark .gt-m1 { color: var(--gt-green, #8CC63F); }
+.gt-top-mark .gt-m2 { color: var(--gt-navy,  #0D4F72); }
+.gt-top-mark small {
+  margin-left: 6px; font-size: 10px; font-weight: 600; letter-spacing: .5px;
+  text-transform: uppercase; color: var(--gt-muted, #7A8696);
+}
+
+.gt-top-rule { width: 1px; height: 26px; background: var(--gt-line, #E4EBF2); flex: 0 0 1px; }
+
+.gt-top-title {
+  margin: 0; font-size: 16px; font-weight: 650; color: var(--gt-ink, #27303D);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ---- right: when and who ---- */
+.gt-top-right { margin-left: auto; display: flex; align-items: center; gap: 16px; }
+
+.gt-top-date {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12.5px; color: var(--gt-muted, #7A8696); white-space: nowrap;
+}
+.gt-top-date svg { width: 15px; height: 15px; flex: 0 0 15px; }
+
+.gt-top-user { display: flex; align-items: center; gap: 10px; }
+
+.gt-avatar {
+  width: 36px; height: 36px; flex: 0 0 36px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, var(--gt-blue, #1890D0), var(--gt-navy, #0D4F72));
+  color: #fff; font-size: 13px; font-weight: 700; letter-spacing: .3px;
+  box-shadow: 0 2px 6px rgba(13,79,114,.22);
+}
+
+.gt-who { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
+.gt-who-name { font-size: 13.5px; font-weight: 600; color: var(--gt-ink, #27303D);
+               white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+
+.gt-role {
+  align-self: flex-start;
+  font-size: 9.5px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase;
+  padding: 1px 7px; border-radius: 999px;
+}
+.gt-role-administrator { background: #EAF4FB; color: var(--gt-navy, #0D4F72); }
+.gt-role-accounts      { background: #F1F8E6; color: #4F7722; }
+.gt-role-client        { background: #FDF1F1; color: var(--gt-red, #C3121A); }
+
+/* ---- narrow screens ---- */
+@media (max-width: 860px) {
+  .gt-top-date, .gt-top-rule, .gt-top-mark small { display: none; }
+}
+@media (max-width: 560px) {
+  .gt-topbar { padding-right: 14px; }
+  .gt-who { display: none; }
+  .gt-top-title { font-size: 15px; }
+}
+
+@media print {
+  .gt-topbar { display: none !important; }
+  body { padding-top: 0; }
+}

@@ -51,8 +51,9 @@ function create_certificate(array $in, array $user): array
         // owner already recorded against it - otherwise a slightly different
         // spelling of the company name creates a second client row and splits
         // that client's history, so the portal shows only half of it.
-        $vehicle = q('SELECT * FROM vehicles WHERE upper(reg_no) = upper(?)', [$in['reg_no']])->fetch();
-
+        $vehicle = q("SELECT * FROM vehicles
+               WHERE regexp_replace(upper(reg_no), '[^A-Z0-9]', '', 'g') = ?
+               LIMIT 1", [plate_key($in['reg_no'])])->fetch();
         if ($vehicle) {
             $clientId = (int)$vehicle['client_id'];
             q('UPDATE clients SET name = ?, phone = ?, address = ?, updated_at = now() WHERE id = ?',
@@ -306,6 +307,11 @@ function default_expiry(string $issueDate, int $months = 12): string
     $date = new DateTime($issueDate);
     $date->modify("+{$months} months")->modify('-1 day');
     return $date->format('Y-m-d');
+}
+/** A registration reduced to letters and digits, for matching: "kdf 745b" -> "KDF745B" */
+function plate_key(string $reg): string
+{
+    return (string)preg_replace('/[^A-Z0-9]/', '', strtoupper(trim($reg)));
 }
 
 function certificate_status(array $cert): string

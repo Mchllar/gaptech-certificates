@@ -39,99 +39,78 @@ function layout_top(string $title, string $nav = 'staff'): void
     ?><!DOCTYPE html>
       <html lang="en">
       <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <title><?= e($title) ?> &middot; GAPTECH Certificates</title>
-      <link rel="stylesheet" href="assets/style.css">
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="stylesheet" href="assets/style.css">
+        <link rel="stylesheet" href="assets/sidenav.css">
+        <link rel="stylesheet" href="assets/topbar.css">
+        <link rel="stylesheet" href="assets/content.css">
       </head>
       <body class="<?= $signedIn ? 'has-sidebar' : 'plain' ?>">
+      <?php require __DIR__ . '/sidenav.php'; ?>
+      <?php require __DIR__ . '/topbar.php'; ?>
 
-<?php if ($signedIn): ?>
-<aside class="sidebar" id="sidebar">
-  <div class="side-brand">
-    <img src="assets/logo_header.png" alt="">
-  </div>
-
-  <p class="side-heading">Menu</p>
-  <nav class="side-nav">
-    <?php if ($user): ?>
-      <?php if ($user['role'] === 'accounts'): ?>
-        <?= nav_item('approvals.php', 'certs', 'Approvals') ?>
-        <?= nav_item('payments.php', 'dashboard', 'Payments') ?>
-      <?php else: ?>
-        <?= nav_item('index.php', 'dashboard', 'Dashboard') ?>
-        <?= nav_item('certificate_new.php', 'new', 'New certificate') ?>
-        <?= nav_item('client_access.php', 'clients', 'Client Portal Access') ?>
-        <?= nav_item('user_admin.php', 'clients', 'Accounts') ?>
-        <?= nav_item('settings.php', 'settings', 'Settings') ?>
-      <?php endif; ?>
-      <?= nav_item('change_password.php', 'settings', 'Change password') ?>
-    <?php else: ?>
-    <?= nav_item('client_portal.php', 'certs', 'My certificates') ?>
-    <?php endif; ?> 
-  </nav>
-
-  <div class="side-foot">
-    <a href="logout.php" class="side-signout"><?= nav_icon('signout') ?><span>Sign out</span></a>
-  </div>
-</aside>
-<div class="scrim" id="scrim"></div>
-<?php endif; ?>
-
-<div class="shell">
-  <?php if (!$signedIn): ?>
-    <div class="auth-brand">
-      <img src="assets/logo_header.png" alt="">
-      <!--<span class="auth-name"><?= e(setting('company_name', 'GAPTECH Solutions Ltd')) ?></span>-->
-     <!-- <span class="auth-tagline"><?= e(setting('tagline', '')) ?></span>-->
-    </div>
+  <div class="shell">
+    <?php if (!$signedIn): ?>
+      <div class="auth-brand">
+        <img src="assets/logo_header.png" alt="">
+      </div>
   <?php endif; ?>
 
-  <?php if ($signedIn): ?>
-  <header class="topbar">
-    <button class="menu-toggle" id="menuToggle" aria-label="Menu">&#9776;</button>
-    <!--<h1 class="page-title"><?= e($title) ?></h1>-->
-    <div class="topbar-right">
-      <span class="who"><?= e($user ? $user['name'] : $client['name']) ?></span>
-      <?php if ($user): ?><span class="role-badge"><?= e($user['role']) ?></span><?php endif; ?>
-    </div>
-  </header>
-  <?php 
-endif; ?>
-
   <main>
-<?php
-    $message = flash();
-    if ($message) {
-        echo '<p class="flash">' . e($message) . '</p>';
+    <?php
+        $message = flash();
+        if ($message) {
+            echo '<p class="flash">' . e($message) . '</p>';
+        }
     }
-}
-
-/** A back link above the page heading. Call it immediately after layout_top(). */
-function layout_back(string $href, string $label = 'Back'): void
-{
-    echo '<a class="back-link" href="' . e($href) . '">'
-       . '<span aria-hidden="true">&larr;</span> ' . e($label) . '</a>';
-}
-function layout_bottom(): void
-{
+    /** A back link above the page heading. Call it immediately after layout_top(). */
+    function layout_back(string $href, string $label = 'Back'): void
+    {
+        echo '<a class="back-link" href="' . e($href) . '">'
+          . '<span aria-hidden="true">&larr;</span> ' . e($label) . '</a>';
+    }
+    function layout_bottom(): void
+    {
     ?>
+
+    <script>
+      (function () {
+  var ICON = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"'
+           + ' stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+           + '<path d="M2.2 12S6 5.6 12 5.6 21.8 12 21.8 12 18 18.4 12 18.4 2.2 12 2.2 12z"/>'
+           + '<circle cx="12" cy="12" r="3.1"/></svg>';        var ICON_OFF = ICON.replace('</svg>', '<path d="M3.5 3.5l17 17"/></svg>');
+
+        document.querySelectorAll('input[type="password"]').forEach(function (input) {
+          if (input.dataset.pwWired) { return; }
+          input.dataset.pwWired = '1';
+
+          var wrap = document.createElement('span');
+          wrap.className = 'pw-wrap';
+          input.parentNode.insertBefore(wrap, input);
+          wrap.appendChild(input);
+
+          var btn = document.createElement('button');
+          btn.type = 'button';                 // never submits the form
+          btn.className = 'pw-eye';
+          btn.innerHTML = ICON;
+          btn.setAttribute('aria-label', 'Show password');
+          wrap.appendChild(btn);
+
+          btn.addEventListener('click', function () {
+            var showing = input.type === 'text';
+            input.type = showing ? 'password' : 'text';
+            btn.innerHTML = showing ? ICON : ICON_OFF;
+            btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+            input.focus();
+          });
+        });
+      })();
+    </script>
   </main>
   <footer>GAPTECH Solutions Ltd &middot; SG Certificate System</footer>
-</div>
-
-<script>
-(function () {
-  var sidebar = document.getElementById('sidebar');
-  var toggle = document.getElementById('menuToggle');
-  var scrim = document.getElementById('scrim');
-  if (!sidebar || !toggle) { return; }
-  function close() { document.body.classList.remove('nav-open'); }
-  toggle.addEventListener('click', function () { document.body.classList.toggle('nav-open'); });
-  if (scrim) { scrim.addEventListener('click', close); }
-})();
-</script>
-</body>
-</html>
-<?php
+  </div>
+  </body>
+  </html>
+  <?php
 }

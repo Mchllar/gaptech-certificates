@@ -7,6 +7,8 @@ require APP_DIR . '/views/layout.php';
 $client = require_client();
 $rows = q("SELECT c.*, v.reg_no FROM certificates c JOIN vehicles v ON v.id = c.vehicle_id
            WHERE c.client_id = ? ORDER BY c.number DESC", [$client['id']])->fetchAll();
+// the first number from Settings, digits only, so it can be dialled
+$officePhone = preg_replace('/[^0-9+]/', '', strtok((string)setting('cell'), '/'));
 
 layout_top('My certificates', 'client');
 
@@ -21,16 +23,27 @@ border-left: 4px solid #3b82f6; letter-spacing: -0.025em; line-height: 1.25;">My
   <?php foreach ($rows as $row): ?>
   <tr>
     <td><?= e($row['reg_no']) ?></td>
-    <td><?= e($row['number']) ?></td>
+    <td>
+      <?php if ($row['number'] !== null && $row['number'] !== ''): ?>
+        <?= e((string)$row['number']) ?>
+      <?php else: ?>
+        <span class="muted">Assigned after approval</span>
+      <?php endif; ?>
+    </td>    
     <td><?= e(fmt_date($row['issue_date'])) ?></td>
     <td><?= e(fmt_date($row['expiry_date'])) ?></td>
     <td class="status-<?= strtolower(certificate_status($row)) ?>"><?= e(certificate_status($row)) ?></td>
     <td>
       <?php $state = certificate_status($row); ?>
       <?php if ($state === 'Valid'): ?>
-        <a href="download.php?id=<?= (int)$row['id'] ?>">Download</a>
-      <?php else: ?>
-        <a href="sheet.php?id=<?= (int)$row['id'] ?>" target="_blank">Preview</a>
+        <a class="button" href="download.php?id=<?= (int)$row['id'] ?>">Download</a>
+        <a class="button secondary" href="sheet.php?id=<?= (int)$row['id'] ?>" target="_blank">Preview</a>
+
+      <?php elseif ($state === 'Pending approval'): ?>
+        <span class="muted">Awaiting approval</span>
+
+      <?php elseif ($state === 'Expired'): ?>
+        <a class="button" href="tel:<?= e($officePhone) ?>">Renew</a>
       <?php endif; ?>
     </td>
   </tr>

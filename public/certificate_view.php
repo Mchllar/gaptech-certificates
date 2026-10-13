@@ -60,10 +60,6 @@ $d = json_decode($cert['snapshot'], true);
 $status = certificate_status($cert);
 $pdfEnabled = !empty($config['wkhtmltopdf']);
 
-// A renewal continues from where the old term ends, or from today if it has lapsed.
-$renewStart   = max(strtotime(date('Y-m-d')), strtotime($cert['expiry_date'] . ' +1 day'));
-$renewDefault = date('Y-m-d', strtotime('+1 year -1 day', $renewStart));
-
 layout_top('Certificate ' . $cert['number']);
 
 layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
@@ -83,62 +79,28 @@ layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
 <?php if ($user['role'] === 'administrator' && certificate_is_releasable($cert)): ?>
 <?php elseif ($user['role'] === 'accounts'): ?>
 <div class="actions">
- 
 <?php else: ?>
   <!-- ... the existing "not releasable" branch ... -->
-<?php endif; ?>
-<?php if ($user['role'] === 'administrator' && certificate_is_releasable($cert)): ?><div class="actions">
-  <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>&amp;print=1" target="_blank">Print</a>
-  <?php if ($pdfEnabled): ?>
-    <a class="button" href="download.php?id=<?= (int)$cert['id'] ?>">Download PDF</a>
-  <?php else: ?>
-    <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>&amp;print=1" target="_blank">Save as PDF</a>
   <?php endif; ?>
-  <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>" target="_blank">Preview</a>
+  <?php if ($user['role'] === 'administrator' && certificate_is_releasable($cert)): ?><div class="actions">
+    <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>&amp;print=1" target="_blank">Print</a>
+    <?php if ($pdfEnabled): ?>
+      <a class="button" href="download.php?id=<?= (int)$cert['id'] ?>">Download PDF</a>
+    <?php else: ?>
+      <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>&amp;print=1" target="_blank">Save as PDF</a>
+    <?php endif; ?>
+    <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>" target="_blank">Preview</a>
 
-  <?php if ($status === 'Valid'): ?>
+    <?php if ($status === 'Valid'): ?>
     <a class="button" href="certificate_edit.php?id=<?= (int)$cert['id'] ?>">Edit certificate</a>
-  <?php elseif ($status === 'Expired'): ?>
-    <button type="button" class="button" id="renew-open">Renew</button>  <?php endif; ?>
-
-    <div id="renew-modal" class="modal" hidden>
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="renew-title">
-    <div class="modal-head">
-      <h2 id="renew-title">Renew certificate</h2>
-      <button type="button" class="modal-close" aria-label="Close">&times;</button>
-    </div>
-    <div class="modal-body">
-      <p class="modal-meta">Everything below is carried over from certificate
-        <?= e(certificate_label($cert)) ?>. Only the expiry date can change.</p>
-
-      <dl class="cert-grid">
-        <div><dt>Vehicle</dt><dd><?= e($d['vehicle']['reg_no']) ?></dd></div>
-        <div><dt>Customer</dt><dd><?= e($d['client']['name'] ?? '') ?></dd></div>
-        <div><dt>Chassis no.</dt><dd><?= e($d['vehicle']['chassis_no'] ?? '') ?></dd></div>
-        <div><dt>Serial no.</dt><dd><?= e($d['device']['serial_no'] ?? '') ?></dd></div>
-      </dl>
-
-      <form method="post" action="renew.php" class="pay-edit">
-        <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
-        <input type="hidden" name="id" value="<?= (int)$cert['id'] ?>">
-
-        <label>New expiry date <span class="req">*</span>
-          <input type="date" name="expiry_date" value="<?= e($renewDefault) ?>"
-                 min="<?= e(date('Y-m-d', strtotime('+1 day'))) ?>" required>
-        </label>
-
-        <p class="modal-meta">Issued today, <?= e(fmt_date(date('Y-m-d'))) ?>.
-          It goes to accounts for approval and takes its number once they confirm payment.</p>
-
-        <div class="pay-edit-actions">
-          <button type="submit">Create renewal</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</div>
-</div>
-<?php else: ?>
+    <?php elseif ($status === 'Expired'): ?>
+      <button type="button" class="button renew-open"
+              data-id="<?= (int)$cert['id'] ?>"
+              data-reg="<?= e($d['vehicle']['reg_no'] ?? '') ?>"
+              data-cert="<?= e(certificate_label($cert)) ?>"
+              data-client="<?= e($d['client']['name'] ?? '') ?>">Renew</button>
+    <?php endif; ?>
+  <?php else: ?>
 <div class="actions">
   <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>" target="_blank">Preview</a>
 </div>
@@ -215,28 +177,5 @@ layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
     <tr><th>Void reason</th><td colspan="3"><?= e($cert['void_reason']) ?></td></tr>
   <?php endif; ?>
 <?php endif; ?>
-
-
-
-<script>
-(function () {
-  var modal = document.getElementById('renew-modal');
-  var open  = document.getElementById('renew-open');
-  if (!modal || !open) { return; }
-
-  function shut() { modal.setAttribute('hidden', ''); document.body.style.overflow = ''; }
-
-  open.addEventListener('click', function () {
-    modal.removeAttribute('hidden');
-    document.body.style.overflow = 'hidden';
-    modal.querySelector('input[name="expiry_date"]').focus();
-  });
-  modal.addEventListener('click', function (ev) {
-    if (ev.target === modal || ev.target.classList.contains('modal-close')) { shut(); }
-  });
-  document.addEventListener('keydown', function (ev) {
-    if (ev.key === 'Escape' && !modal.hasAttribute('hidden')) { shut(); }
-  });
-})();
-</script>
+<?php require APP_DIR . '/views/renew_modal.php'; ?>
 <?php layout_bottom(); ?>

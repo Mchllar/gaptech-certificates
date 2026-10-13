@@ -15,9 +15,9 @@ $status = (string)($_GET['status'] ?? 'all');
 if (!in_array($status, ['all', 'pending', 'valid', 'expired', 'superseded', 'voided', 'rejected'], true)) {
     $status = 'all';
 }
-$perPage = (int)($_GET['per'] ?? 25);
+$perPage = (int)($_GET['per'] ?? 10);
 if (!in_array($perPage, [10, 25, 50, 100], true)) {
-    $perPage = 25;
+    $perPage = 10;
 }
 $page = max(1, (int)($_GET['page'] ?? 1));
 
@@ -190,9 +190,13 @@ layout_top('Certificates');
     <td><?= e((string)$row['number']) ?></td>
     <td><?= e($row['reg_no']) ?></td>
     <td><?= e($row['client_name']) ?></td>
-    <td><a href="certificate_new.php?reg=<?= urlencode($row['reg_no']) ?>">Renew</a></td>
-  </tr>
+    <td><button type="button" class="link-button renew-open"
+        data-id="<?= (int)$row['id'] ?>"
+        data-reg="<?= e($row['reg_no']) ?>"
+        data-cert="<?= e((string)$row['number']) ?>"
+        data-client="<?= e($row['client_name']) ?>">Renew</button></td>  </tr>
   <?php endforeach; ?>
   <?php if (!$expiring): ?><tr><td colspan="5">Nothing due in the next 30 days.</td></tr><?php endif; ?>
 </table>
+<?php require APP_DIR . '/views/renew_modal.php'; ?>
 <?php layout_bottom(); ?>

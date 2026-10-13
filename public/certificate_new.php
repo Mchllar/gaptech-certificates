@@ -1,5 +1,10 @@
 <?php
-/** The one form staff fill in. Everything on the certificate comes from here. */
+/**
+ * The one form staff fill in. Everything on the certificate comes from here.
+ *
+ * Saving creates the certificate as PENDING. It has no number and cannot be printed
+ * or downloaded until accounts records the payment and approves it.
+ */
 require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/certificates.php';
 require APP_DIR . '/views/layout.php';
@@ -25,18 +30,19 @@ $form = [
     'type' => 'Renewal', 'issue_date' => date('Y-m-d'),
     'validity_months' => $defaults['validity_months'],
     'expiry_date' => default_expiry(date('Y-m-d'), (int)$defaults['validity_months']),
-    'receipt_ref' => '',
 ];
 
 /** Fields that are typed in capitals, on screen and when saved. */
 $upperFields = ['client_name', 'client_address', 'reg_no', 'make', 'chassis_no',
-                'device_model', 'serial_no', 'technician', 'receipt_ref'];
+                'device_model', 'serial_no', 'technician'];
 
 // Prefill from an existing vehicle: certificate_new.php?reg=KDK 017N
+// Matched on letters and digits only, so KDK017N finds KDK 017N.
 if (!empty($_GET['reg'])) {
-    $v = q('SELECT v.*, c.name AS client_name, c.phone, c.address
+    $v = q("SELECT v.*, c.name AS client_name, c.phone, c.address
             FROM vehicles v JOIN clients c ON c.id = v.client_id
-            WHERE upper(v.reg_no) = upper(?)', [$_GET['reg']])->fetch();
+            WHERE regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g') = ?",
+           [plate_key((string)$_GET['reg'])])->fetch();
     if ($v) {
         $form['client_name'] = $v['client_name'];
         $form['client_phone'] = $v['phone'];
@@ -73,7 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $form['expiry_date'] = default_expiry($form['issue_date'], (int)$form['validity_months']);
     }
 
-    // Everything is required except the receipt reference.
+    // Everything on the form is required.
     $labels = [
         'client_name' => 'Customer name', 'client_phone' => 'Contact', 'client_address' => 'Address',
         'reg_no' => 'Registration number', 'make' => 'Make', 'chassis_no' => 'Chassis number',
@@ -96,17 +102,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($form['client_phone'] !== '' && !preg_match('/^[0-9+ ]+$/', $form['client_phone'])) {
         $errors[] = 'Contact may contain only digits, spaces and +.';
     }
-    if ($form['receipt_ref'] !== '') {
-        $used = q('SELECT number FROM certificates WHERE receipt_ref = ?', [$form['receipt_ref']])->fetch();
-        if ($used) {
-            $errors[] = 'That receipt reference was already used on certificate ' . $used['number'] . '.';
-        }
-    }
 
     if (!$errors) {
         try {
             $cert = create_certificate($form, $user);
-            flash('Certificate ' . $cert['number'] . ' issued.');
+            flash('Certificate for ' . $form['reg_no'] . ' sent to accounts for approval. '
+                . 'It takes its number once they confirm the payment.');
             redirect('certificate_view.php?id=' . $cert['id']);
         } catch (Throwable $err) {
             $errors[] = 'Could not save: ' . $err->getMessage();
@@ -134,8 +135,9 @@ layout_top('New certificate');
 layout_back('index.php', 'Back to certificates');
 ?>
 <h1>New Certificate</h1>
-<p class="hint">All fields are required except the receipt reference. The certificate number, governor model,
-set speed, technician and expiry date are filled in automatically from Settings when you save.</p>
+<p class="hint">All fields are required. The governor model, set speed, technician and expiry date are
+filled in from Settings. The certificate goes to accounts when you save, and takes its number once
+they confirm the payment.</p>
 
 <?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
 
@@ -178,11 +180,6 @@ set speed, technician and expiry date are filled in automatically from Settings 
       </span>
     </label>
     <?php field('issue_date', 'Issue date', $form['issue_date'], ['type' => 'date']); ?>
-    <label class="field">Receipt / payment reference
-      <span class="field-row">
-        <input name="receipt_ref" class="caps" value="<?= e($form['receipt_ref']) ?>">
-      </span>
-    </label>
   </fieldset>
 
   <button type="submit">Save Certificate</button>

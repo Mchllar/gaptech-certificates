@@ -23,9 +23,9 @@ if (!in_array($period, ['month', 'last', 'quarter', 'all'], true)) {
     $period = 'month';
 }
 
-$perPage = (int)($_GET['per'] ?? 25);
-if (!in_array($perPage, [25, 50, 100], true)) {
-    $perPage = 25;
+$perPage = (int)($_GET['per'] ?? 10);
+if (!in_array($perPage, [10, 25, 50, 100], true)) {
+    $perPage = 10;
 }
 $page = max(1, (int)($_GET['page'] ?? 1));
 
@@ -88,7 +88,7 @@ function reg_link(array $overrides = []): string
 {
     $params = array_merge([
         'q' => $_GET['q'] ?? '', 'decision' => $_GET['decision'] ?? 'approved',
-        'period' => $_GET['period'] ?? 'month', 'per' => $_GET['per'] ?? 25,
+        'period' => $_GET['period'] ?? 'month', 'per' => $_GET['per'] ?? 10,
         'page' => $_GET['page'] ?? 1,
     ], $overrides);
     return 'payments.php?' . http_build_query(array_filter($params, fn($v) => $v !== '' && $v !== null));
@@ -164,8 +164,7 @@ layout_back('approvals.php', 'Back to approvals');
     <td class="nowrap"><?= e($row['reg_no']) ?></td>
     <td class="ellipsis" title="<?= e($row['client_name']) ?>"><?= e($row['client_name']) ?></td>
     <td class="wrap">
-      <?php if ($row['payment_ref'] !== ''): ?><code><?= e($row['payment_ref']) ?></code><?php else: ?>&mdash;<?php endif; ?>
-      <?php if ($row['payment_edited_at']): ?><span class="edited-tag" title="Corrected after approval">edited</span><?php endif; ?>
+      <?php if (($row['payment_ref'] ?? '') !== ''): ?><code><?= e($row['payment_ref']) ?></code><?php else: ?><span class="dash">&mdash;</span><?php endif; ?>      <?php if ($row['payment_edited_at']): ?><span class="edited-tag" title="Corrected after approval">edited</span><?php endif; ?>
       <?php if (!empty($row['payment_note'])): ?>
          <button type="button" class="note-open" data-id="<?= (int)$row['id'] ?>">View</button>
       <?php endif; ?>
@@ -174,7 +173,7 @@ layout_back('approvals.php', 'Back to approvals');
       <?= $row['approval_status'] === 'approved' ? 'Approved' : 'Rejected' ?></td>
     <td class="ellipsis" title="<?= e((string)$row['decided_by']) ?>"><?= e((string)$row['decided_by']) ?></td>
     <td><a href="certificate_view.php?id=<?= (int)$row['id'] ?>">View Cert</a></td>
-
+  </tr>
   <?php endforeach; ?>
   <?php if (!$rows): ?><tr><td colspan="8">Nothing matches those filters.</td></tr><?php endif; ?>
 </table>
@@ -186,7 +185,7 @@ layout_back('approvals.php', 'Back to approvals');
     <input type="hidden" name="period" value="<?= e($period) ?>">
     <label>Rows per page
       <select name="per" onchange="this.form.submit()">
-        <?php foreach ([25, 50, 100] as $n): ?>
+        <?php foreach ([10, 25, 50, 100] as $n): ?>
           <option value="<?= $n ?>" <?= $perPage === $n ? 'selected' : '' ?>><?= $n ?></option>
         <?php endforeach; ?>
       </select>

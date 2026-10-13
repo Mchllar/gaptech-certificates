@@ -12,35 +12,77 @@ body { margin:0; font-family: "Segoe UI", Arial, sans-serif; color: var(--ink); 
 body.has-sidebar { margin:0; }
 
 /* ---- the sidebar itself ---- */
-.sidebar { position:fixed; top:0; left:0; width:300px; height:100vh; background:#fff;
-           border-right:1px solid var(--line); display:flex; flex-direction:column;
-           z-index:40; overflow-y:auto; }
-.side-brand { display:flex; align-items:center; gap:10px; padding:14px 16px;
-              border-bottom:1px solid var(--line); }
-.side-brand img { height:60px; width:auto; max-width:300px; display:block; }
+#sidebar {position: fixed; top: 0; left: 0; bottom: 0; width: 240px; z-index: 800;
+          background: #fff; border-right: 1px solid #D9E2EC;
+          display: flex; flex-direction: column;transform: translateX(-100%); transition: transform .2s ease; }
+body.nav-open #sidebar { transform: translateX(0); }
+#scrim { position: fixed; inset: 0; background: rgba(13,79,114,.35); z-index: 790; display: none; }
+body.nav-open #scrim { display: block; }
+
+.side-brand { padding: 14px 16px; border-bottom: 1px solid #E6EDF4; }
+.side-brand img { max-width: 100%; height: auto; }
+
 .side-brand-text { display:flex; flex-direction:column; line-height:1.2; min-width:0; }
 .side-name { font-weight:700; font-size:13px; color:var(--navy); }
 .side-tagline { font-size:10px; font-style:italic; color:var(--red); }
-.side-heading { margin:16px 16px 6px; font-size:11px; letter-spacing:1.2px; text-transform:uppercase;
-                color:var(--muted); }
+.side-heading { margin: 14px 16px 6px; font-size: 11px; font-weight: 600;
+                text-transform: uppercase; letter-spacing: .6px; color: #8793A3; }
 
-.side-nav { display:flex; flex-direction:column; gap:2px; padding:0 10px; }
-.side-nav a { display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:8px;
-              color:var(--ink); text-decoration:none; font-size:14.5px; }
-.side-nav a[href="settings.php"] svg { width:18px; height:18px; flex:0 0 18px; }
-.side-nav a:hover { background:#f1f4f9; }
-.side-nav a.on { background:#eaf1fb; color:var(--navy); font-weight:600;
-                 box-shadow:inset 3px 0 0 var(--navy); }
-.side-nav svg, .side-signout svg { width:19px; height:19px; flex:0 0 19px; }
+/* sidebar: closed until the menu button is clicked */
+#sidebar { position: fixed; top: 0; left: 0; bottom: 0; width: 240px; z-index: 800;
+           background: #fff; border-right: 1px solid #D9E2EC;
+           display: flex; flex-direction: column;
+           transform: translateX(-100%); transition: transform .2s ease; }
+body.nav-open #sidebar { transform: translateX(0); }
 
-.side-foot { margin-top:auto; padding:12px 10px 16px; border-top:1px solid var(--line); }
-.side-signout { display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:8px;
-                color:var(--red); text-decoration:none; font-size:14.5px; }
-.side-signout:hover { background:#fdecec; }
+#scrim { position: fixed; inset: 0; background: rgba(13,79,114,.35); z-index: 790; display: none; }
+body.nav-open #scrim { display: block; }
+
+/* every icon in the sidebar, nav and footer alike */
+#sidebar svg { width: 18px; height: 18px; flex: 0 0 18px; }
+
+.side-brand { padding: 14px 16px; border-bottom: 1px solid #E6EDF4; }
+.side-brand img { max-width: 100%; height: auto; }
+
+.side-heading { margin: 14px 16px 6px; font-size: 11px; font-weight: 600;
+                text-transform: uppercase; letter-spacing: .6px; color: #8793A3; }
+
+.side-nav { flex: 1 1 auto; overflow-y: auto; }
+.side-nav a { display: flex; align-items: center; gap: 10px; padding: 9px 16px;
+              color: #27303D; text-decoration: none; font-size: 14px; }
+.side-nav a:hover { background: #F0F6FB; color: #0D4F72; }
+.side-nav a.active { background: #EAF4FB; color: #0D4F72; font-weight: 600; }
+
+.side-foot { border-top: 1px solid #E6EDF4; padding: 10px 0; }
+.side-signout { display: flex; align-items: center; gap: 10px; padding: 9px 16px;
+                color: #C3121A; text-decoration: none; font-size: 14px; }
+.side-signout:hover { background: #FDF0F0; }
+
+/* side navigation slides in over the page, closed by default */
+#sidenav { position: fixed; top: 0; left: 0; bottom: 0; width: 240px; z-index: 800;
+           overflow-y: auto; transform: translateX(-100%);
+           transition: transform .2s ease; }
+
+#nav-backdrop { position: fixed; inset: 0; background: rgba(13,79,114,.35); z-index: 790; }
+#nav-backdrop[hidden] { display: none !important; }
+
+#nav-toggle { cursor: pointer; }
+
 
 /* ---- content area beside the sidebar ---- */
-body.has-sidebar .shell { margin-left:242px; min-height:100vh; display:flex; flex-direction:column; }
+/* body.has-sidebar .shell { margin-left:242px; min-height:100vh; display:flex; flex-direction:column; } */
 body.plain .shell { min-height:100vh; }
+/* ---- the bar always spans the page; the panel sits under it ---- */
+.gt-sidebar { top: 62px !important; }
+.gt-scrim   { top: 62px !important; }
+
+.gt-top-logo { height: 34px; width: auto; display: block; flex: 0 0 auto; }
+.gt-sidebar .gt-whoami { padding-top: 16px; }
+
+@media (max-width: 560px) { .gt-top-logo { height: 28px; } }
+
+/* ---- page content: full width, centred, with gutters ---- */
+.shell { margin-left: 0 !important; width: auto !important; max-width: none !important; }
 
 .topbar { display:flex; align-items:center; gap:14px; background:#fff; padding:12px 22px;
           border-bottom:1px solid var(--line); position:sticky; top:0; z-index:30; }
@@ -67,7 +109,7 @@ body.has-sidebar h1 { font-size:20px; }
   body.has-sidebar main { padding:0 16px 32px; }
 }
 
-main { max-width:1100px; margin:22px auto; padding:0 18px 40px; }
+main { max-width:1200px; margin:0 auto; padding:24px 24px 56px; }
 h1 { font-size:22px; margin:0 0 4px; }
 h2 { font-size:17px; margin:28px 0 8px; }
 .hint { color: var(--muted); font-size:14px; margin:4px 0 16px; }
@@ -518,26 +560,30 @@ table.register { min-width: 900px; }
              border-left: 3px solid #E8B64C; padding: 8px 12px;
              border-radius: 0 4px 4px 0; margin: 4px 0 14px; }
 
-/* forms inside a dialog sit tight */
-.modal .modal-body { padding: 16px 20px 20px; }
-.modal .pay-edit { margin: 0; padding: 0; border-top: 0; }
+/* ---- dialogs sit above the top bar and the side panel ---- */
+.modal { z-index: 1300 !important; padding: 40px !important; }
+.modal-card { max-height: calc(100vh - 40px); width:100%}
 
-.modal .pay-edit label { display: block; margin: 0 0 12px; padding: 0;
-    font-size: 11px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: .4px; color: #8793A3; line-height: 1.3; }
+/* ---- dialogs: no dimmed backdrop ---- */
+.modal { background: transparent !important; backdrop-filter: none !important; }
 
+
+
+.modal .pay-edit { gap: 10px; display: flex; flex-direction: column; gap: 14px; }
+
+.modal .pay-edit label { line-height: 1.2; }
 .modal .pay-edit input,
 .modal .pay-edit select,
-.modal .pay-edit textarea { display: block; width: 100%; margin: 4px 0 0;
-    padding: 8px 10px; border: 1px solid #D9E2EC; border-radius: 6px;
-    box-sizing: border-box; font: inherit; font-size: 13px; font-weight: 400;
-    text-transform: none; letter-spacing: 0; color: #27303D; background: #fff; }
+.modal .pay-edit textarea { margin-top: 4px !important; padding: 8px 11px; }
+.modal .pay-edit textarea { min-height: 76px; }
+.modal .pay-edit > * { margin: 0 !important; }
+.modal .modal-head { padding: 10px 18px; }
 
-.modal .pay-edit select { height: auto; }
-.modal .pay-edit textarea { resize: vertical; }
-.modal .pay-edit .warn-note { margin: 2px 0 14px; }
-.modal .pay-edit-actions { margin: 4px 0 0; }
+.modal .pay-edit .warn-note { margin: 0 0 14px !important; font-size: 12px; }
+.modal .pay-edit-actions { position: static !important; margin: 2px 0 0 !important;
+                           padding: 0 !important; border: 0 !important; }
 
-.modal .modal-body { flex: 1 1 auto; overflow-y: auto; min-height: 0; }
-.modal .pay-edit-actions { position: sticky; bottom: 0; background: #fff;
-    margin-top: 8px; padding: 12px 0 2px; border-top: 1px solid #E6EDF4; }
+/* ---- the renewal dialog: wide enough that nothing scrolls ---- */
+#renew-modal .modal-card { max-width: 100%; }
+#renew-modal .modal-body { overflow: visible; }
+
