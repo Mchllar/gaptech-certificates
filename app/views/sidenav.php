@@ -107,24 +107,26 @@ $gtName = $gtUser ? (string)($gtUser['name'] ?? '') : (string)($gtClient['name']
 
   <nav class="gt-nav">
     <?php if ($gtRole === 'accounts'): ?>
-      <?= gt_link('approvals.php', 'approvals', 'Approvals') ?>
-      <?= gt_link('payments.php', 'payments', 'Payments') ?>
-      <?= gt_link('verify.php', 'verify', 'Verify a certificate') ?>
-      <?= gt_link('change_password.php', 'password', 'Change password') ?>
+      <?= gt_link('approvals.php', 'approvals', 'Approve SG. Certificates') ?>
+      <?= gt_link('payments.php', 'payments', 'SG. Records') ?>
+      <?= gt_link('tracking_list.php', 'certs', 'Tracker Certificates') ?>
+      <?= gt_link('verify.php', 'verify', 'Verify a SG. Certificate') ?>
+      <?= gt_link('change_password.php', 'password', 'Change Password') ?>
 
     <?php elseif ($gtRole === 'client'): ?>
-      <?= gt_link('client_portal.php', 'portal', 'My certificates') ?>
-      <?= gt_link('verify.php', 'verify', 'Verify a certificate') ?>
+      <?= gt_link('client_portal.php', 'portal', 'My SG. Certificates') ?>
+      <?= gt_link('verify.php', 'verify', 'Verify SG. Certificate') ?>
 
     <?php else: ?>
-      <?= gt_link('dashboard.php', 'dashboard', 'Dashboard') ?>
-      <?= gt_link('index.php', 'certs', 'Certificates') ?>
-      <?= gt_link('certificate_new.php', 'new', 'New certificate') ?>
-      <?= gt_link('verify.php', 'verify', 'Verify a certificate') ?>
-      <?= gt_link('client_access.php', 'clients', 'Client portal access') ?>
-      <?= gt_link('user_admin.php', 'clients', 'Staff accounts') ?>
-      <?= gt_link('settings.php', 'settings', 'Settings') ?>
-      <?= gt_link('change_password.php', 'password', 'Change password') ?>
+      <?= gt_link('dashboard.php', 'dashboard', 'SG. Dashboard') ?>
+      <?= gt_link('index.php', 'certs', 'SG. Certificates') ?>
+      <?= gt_link('certificate_new.php', 'new', 'New SG. Certificate') ?>
+      <?= gt_link('tracking_list.php', 'certs', 'Tracker Installations') ?>
+      <?= gt_link('verify.php', 'verify', 'Verify a SG. Certificate') ?>
+      <?= gt_link('client_access.php', 'clients', 'Client Portal Access') ?>
+      <?= gt_link('user_admin.php', 'clients', 'Staff Accounts') ?>
+      <?= gt_link('settings.php', 'settings', 'SG. Settings') ?>
+      <?= gt_link('change_password.php', 'password', 'Change Password') ?>
     <?php endif; ?>
   </nav>
 

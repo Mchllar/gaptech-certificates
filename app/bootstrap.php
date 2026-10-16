@@ -120,11 +120,36 @@ function fmt_date(?string $date): string
 function start_session(): void
 {
     global $config;
-    if (session_status() === PHP_SESSION_NONE) {
-        session_name($config['session_name']);
-        session_set_cookie_params(['httponly' => true, 'samesite' => 'Lax']);
-        session_start();
+    if (session_status() !== PHP_SESSION_NONE) {
+        return;
     }
+
+    session_name($config['session_name']);
+    session_set_cookie_params([
+        'lifetime' => 0,          // dies when the browser closes
+        'path'     => '/',
+        'httponly' => true,       // JavaScript cannot read it
+        'samesite' => 'Lax',
+    ]);
+    session_start();
+
+    // Signed-in sessions lapse after half an hour with nothing happening.
+    $idleLimit = 30 * 60;
+    $wasClient = !empty($_SESSION['client_id']) && empty($_SESSION['user_id']);
+    $signedIn  = !empty($_SESSION['user_id']) || !empty($_SESSION['client_id']);
+    $onLogin   = in_array(basename((string)($_SERVER['SCRIPT_NAME'] ?? '')),
+    ['login.php', 'client_login.php', 'logout.php', 'verify.php'], true);
+
+    if ($signedIn && !empty($_SESSION['last_seen'])
+        && time() - $_SESSION['last_seen'] > $idleLimit) {
+        $_SESSION = [];
+        session_destroy();
+        if (!$onLogin) {
+            header('Location: ' . ($wasClient ? 'client_login.php' : 'login.php') . '?timeout=1');
+            exit;
+        }
+    }
+    $_SESSION['last_seen'] = time();
 }
 
 function csrf_token(): string

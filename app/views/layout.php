@@ -45,6 +45,7 @@ function layout_top(string $title, string $nav = 'staff'): void
         <link rel="stylesheet" href="assets/sidenav.css">
         <link rel="stylesheet" href="assets/topbar.css">
         <link rel="stylesheet" href="assets/content.css">
+        <link rel="stylesheet" href="assets/ui.css">
       </head>
       <body class="<?= $signedIn ? 'has-sidebar' : 'plain' ?>">
       <?php require __DIR__ . '/sidenav.php'; ?>
@@ -76,10 +77,11 @@ function layout_top(string $title, string $nav = 'staff'): void
 
     <script>
       (function () {
-  var ICON = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"'
-           + ' stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-           + '<path d="M2.2 12S6 5.6 12 5.6 21.8 12 21.8 12 18 18.4 12 18.4 2.2 12 2.2 12z"/>'
-           + '<circle cx="12" cy="12" r="3.1"/></svg>';        var ICON_OFF = ICON.replace('</svg>', '<path d="M3.5 3.5l17 17"/></svg>');
+        var ICON = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"'
+                + ' stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+                + '<path d="M2.2 12S6 5.6 12 5.6 21.8 12 21.8 12 18 18.4 12 18.4 2.2 12 2.2 12z"/>'
+                + '<circle cx="12" cy="12" r="3.1"/></svg>';        
+        var ICON_OFF = ICON.replace('</svg>', '<path d="M3.5 3.5l17 17"/></svg>');
 
         document.querySelectorAll('input[type="password"]').forEach(function (input) {
           if (input.dataset.pwWired) { return; }

@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 layout_top('Settings');
 layout_back('index.php', 'Back to certificates');
 ?>
-<h1>Settings</h1>
+<h1  class="page-title">SG. Settings</h1>
 <p class="hint">These values are printed on new certificates. Certificates already issued keep the details
 they were issued with.</p>
 

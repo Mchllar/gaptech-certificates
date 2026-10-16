@@ -25,6 +25,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 layout_top('Client sign in', 'public');
 ?>
 <?php if ($error): ?><p class="error"><?= e($error) ?></p><?php endif; ?>
+    <?php if (!empty($_GET['timeout'])): ?>
+        <p class="hint">You were signed out after 30 minutes of inactivity.</p>
+    <?php endif; ?>
     <h1 style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 1.75rem; font-weight: 700; color: #0f172a; margin: 0 0 1rem 0; padding-left: 0.875rem; border-left: 4px solid #3b82f6; letter-spacing: -0.025em; line-height: 1.25;">Client Module</h1>
     <p class="hint"style="color: darkgray; margin: 4px 0 10px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">Sign In to Continue</p>
 

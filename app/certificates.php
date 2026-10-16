@@ -314,6 +314,26 @@ function plate_key(string $reg): string
     return (string)preg_replace('/[^A-Z0-9]/', '', strtoupper(trim($reg)));
 }
 
+/** Pull the payment reference out of a pasted M-Pesa or bank message. */
+function extract_payment_ref(string $text): string
+{
+    $up = strtoupper($text);
+    $patterns = [
+        '/M[-\s]?PESA\s*REF[:.\s]*([A-Z0-9]{8,15})/',
+        '/\bREF(?:ERENCE)?[:.\s]*([A-Z0-9]{8,15})/',
+        '/\b([A-Z0-9]{10})\b/',
+    ];
+    foreach ($patterns as $re) {
+        if (preg_match($re, $up, $m)) {
+            // a real reference mixes letters and digits - this skips phone numbers and amounts
+            if (preg_match('/[0-9]/', $m[1]) && preg_match('/[A-Z]/', $m[1])) {
+                return $m[1];
+            }
+        }
+    }
+    return '';
+}
+
 function certificate_status(array $cert): string
 {
     // Approval comes first: an unapproved certificate is not valid whatever its dates say.

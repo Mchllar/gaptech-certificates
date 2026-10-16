@@ -54,10 +54,10 @@ $pending = q("SELECT c.*, v.reg_no, cl.name AS client_name, u.name AS issued_by_
               ORDER BY c.issued_at")->fetchAll();
 
 layout_top('Approvals');
-layout_back('payments.php', 'Back to payments');
+layout_back('payments.php', 'Back to SG. Records');
 
 ?>
-<h1>Certificates Awaiting Approval</h1>
+<h1>SG. Certificates Awaiting Approval</h1>
 <p class="hint">A certificate can only be printed or downloaded once the payment is on record.
    Paste the payment message, check the reference, then approve.</p>
 

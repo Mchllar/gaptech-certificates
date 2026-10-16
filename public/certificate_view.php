@@ -63,10 +63,10 @@ $pdfEnabled = !empty($config['wkhtmltopdf']);
 layout_top('Certificate ' . $cert['number']);
 
 layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
-            $user['role'] === 'accounts' ? 'Back to payments' : 'Back to certificates');
+            $user['role'] === 'accounts' ? 'Back to payments' : 'Back to SG. Certificates');
 
 ?>
-<h1>Certificate <?= e($cert['number']) ?> <span class="status-<?= strtolower($status) ?>"><?= e($status) ?></span></h1>
+<h1>SG. Certificate - <?= e($cert['number']) ?> <span class="status-<?= strtolower($status) ?>"><?= e($status) ?></span></h1>
 
 <?php if (!empty($_SESSION['flash_error'])): ?>
   <p class="error"><?= e($_SESSION['flash_error']) ?></p><?php unset($_SESSION['flash_error']); ?>
@@ -82,35 +82,6 @@ layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
 <?php else: ?>
   <!-- ... the existing "not releasable" branch ... -->
   <?php endif; ?>
-  <?php if ($user['role'] === 'administrator' && certificate_is_releasable($cert)): ?><div class="actions">
-    <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>&amp;print=1" target="_blank">Print</a>
-    <?php if ($pdfEnabled): ?>
-      <a class="button" href="download.php?id=<?= (int)$cert['id'] ?>">Download PDF</a>
-    <?php else: ?>
-      <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>&amp;print=1" target="_blank">Save as PDF</a>
-    <?php endif; ?>
-    <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>" target="_blank">Preview</a>
-
-    <?php if ($status === 'Valid'): ?>
-    <a class="button" href="certificate_edit.php?id=<?= (int)$cert['id'] ?>">Edit certificate</a>
-    <?php elseif ($status === 'Expired'): ?>
-      <button type="button" class="button renew-open"
-              data-id="<?= (int)$cert['id'] ?>"
-              data-reg="<?= e($d['vehicle']['reg_no'] ?? '') ?>"
-              data-cert="<?= e(certificate_label($cert)) ?>"
-              data-client="<?= e($d['client']['name'] ?? '') ?>">Renew</button>
-    <?php endif; ?>
-  <?php else: ?>
-<div class="actions">
-  <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>" target="_blank">Preview</a>
-</div>
-<?php endif; ?>
-
-<?php if ($user['role'] === 'administrator'): ?>
-  <?php if ($cert['status'] === 'voided' && trim((string)$cert['void_reason']) !== ''): ?>
-    <tr><th>Void reason</th><td colspan="3"><?= e($cert['void_reason']) ?></td></tr>
-  <?php endif; ?>
-<?php endif; ?>
 
 <table class="details">
   <tr><th>Customer</th><td><?= e($d['client']['name']) ?></td></tr>
@@ -132,7 +103,7 @@ layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
         <td colspan="3"><a href="verify.php?t=<?= e($cert['verify_token']) ?>" target="_blank">Click to verify</a></td></tr> -->
 
   <?php elseif ($current): ?>
-    <tr><th>Current certificate</th>
+    <tr><th>Current SG. Certificate</th>
         <td colspan="3">
           <a href="certificate_view.php?id=<?= (int)$current['id'] ?>"><?= e((string)$current['number']) ?></a>
           &mdash; valid until <?= e(fmt_date($current['expiry_date'])) ?>
@@ -146,7 +117,7 @@ layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
         </td></tr>
 
   <?php else: ?>
-    <tr><th>Current certificate</th>
+    <tr><th>Current SG. Certificate</th>
         <td colspan="3">
           This vehicle has no valid certificate.
           <?php if ($user['role'] === 'administrator'): ?>
@@ -159,12 +130,11 @@ layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
         <td><?= $cert['approved_at'] ? e(fmt_date(substr((string)$cert['approved_at'], 0, 10))) : '&mdash;' ?></td></tr>
     <tr>
       <th>Rejected by</th><td><?= e((string)$cert['decided_by_name']) ?></td></tr>
-      <th>Reason</th><td colspan="3"><?= e((string)$cert['rejection_reason']) ?></td>
-    </tr>
+      <th>Reason</th><td colspan="3" style="color:#C3121A; font-weight:600"><?= e((string)$cert['rejection_reason']) ?></td>    </tr>
 
   <?php else: ?>
-    <tr><th>Status</th><td colspan="3">Waiting for accounts to confirm payment.
-        It has no certificate number and cannot be printed or downloaded until approved.</td></tr>
+    <tr><th>Status</th><td colspan="3"  style="color:brown;font-weight:600">Waiting for accounts to confirm payment.
+        It has no certificate number and cannot be previewed, printed </br>or downloaded until approved.</td></tr>
   <?php endif; ?>
 </table>
 
@@ -174,6 +144,36 @@ layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
   <?php endif; ?>
 <?php elseif ($user['role'] === 'administrator'): ?>
     <?php if ($cert['status'] === 'voided' && trim((string)$cert['void_reason']) !== ''): ?>
+    <tr><th>Void reason</th><td colspan="3"><?= e($cert['void_reason']) ?></td></tr>
+  <?php endif; ?>
+<?php endif; ?>
+  <?php if ($user['role'] === 'administrator' && certificate_is_releasable($cert)): ?><div class="actions">
+    <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>&amp;print=1" target="_blank">Print</a>
+    <?php if ($pdfEnabled): ?>
+      <a class="button" href="download.php?id=<?= (int)$cert['id'] ?>">Download PDF</a>
+    <?php else: ?>
+      <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>&amp;print=1" target="_blank">Download PDF</a>
+    <?php endif; ?>
+    <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>" target="_blank">Preview</a>
+    <?php if ($status === 'Valid'): ?>
+    <a class="button" href="certificate_edit.php?id=<?= (int)$cert['id'] ?>">Edit certificate</a>
+    <?php elseif ($status === 'Expired'): ?>
+      <button type="button" class="button renew-open"
+              data-id="<?= (int)$cert['id'] ?>"
+              data-reg="<?= e($d['vehicle']['reg_no'] ?? '') ?>"
+              data-cert="<?= e(certificate_label($cert)) ?>"
+              data-client="<?= e($d['client']['name'] ?? '') ?>">Renew</button>
+    <?php endif; ?>
+  <?php else: ?>
+<div class="actions">
+<?php if (certificate_is_releasable($cert)): ?>
+  <a class="button" href="sheet.php?id=<?= (int)$cert['id'] ?>" target="_blank">Preview</a>
+<?php endif; ?>
+</div>
+<?php endif; ?>
+
+<?php if ($user['role'] === 'administrator'): ?>
+  <?php if ($cert['status'] === 'voided' && trim((string)$cert['void_reason']) !== ''): ?>
     <tr><th>Void reason</th><td colspan="3"><?= e($cert['void_reason']) ?></td></tr>
   <?php endif; ?>
 <?php endif; ?>

@@ -73,8 +73,8 @@ $openCreds = !empty($_GET['open']);
 layout_top('Client portal access');
 layout_back('index.php', 'Back to certificates');
 ?>
-<h1 class="page-title">Client Portal Access</h1>
-<p class="hint">Assign or change the username and password clients use to download their own certificates.</p>
+<h1 class="page-title">SG. Client's Portal Access</h1>
+<p class="hint">Assign or change the username and password clients use to download their own SG. certificates.</p>
 
 <!-- <h2 id="logins">Clients with credentials</h2> -->
 
@@ -129,13 +129,13 @@ layout_back('index.php', 'Back to certificates');
 </div>
 
 <div class="actions">
-  <button type="button" class="button" id="creds-open">Assign credentials</button>
+  <button type="button" class="button" id="creds-open">Assign Credentials</button>
 </div>
 
 <div id="creds-modal" class="modal" <?= $openCreds ? '' : 'hidden' ?>>
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="creds-title">
     <div class="modal-head">
-      <h2 id="creds-title">Assign credentials</h2>
+      <h2 id="creds-title" style="color:white;">Assign Credentials</h2>
       <button type="button" class="modal-close" aria-label="Close">&times;</button>
     </div>
 

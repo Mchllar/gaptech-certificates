@@ -37,8 +37,6 @@ body { padding-top: var(--gt-top-h); }
   font-size: 15px; font-weight: 800; letter-spacing: -.2px;
   white-space: nowrap;
 }
-.gt-top-mark .gt-m1 { color: var(--gt-green, #8CC63F); }
-.gt-top-mark .gt-m2 { color: var(--gt-navy,  #0D4F72); }
 .gt-top-mark small {
   margin-left: 6px; font-size: 10px; font-weight: 600; letter-spacing: .5px;
   text-transform: uppercase; color: var(--gt-muted, #7A8696);
@@ -97,3 +95,9 @@ body { padding-top: var(--gt-top-h); }
   .gt-topbar { display: none !important; }
   body { padding-top: 0; }
 }
+
+.gt-top-out { display: flex; align-items: center; justify-content: center;
+              width: 36px; height: 36px; border-radius: 9px;
+              color: var(--gt-red, #C3121A); text-decoration: none;
+              transition: background .15s ease; }
+.gt-top-out:hover { background: #FDF1F1; }

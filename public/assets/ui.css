@@ -1,0 +1,409 @@
+/* =========================================================================
+   GAPTECH certificate system - typeface and popups
+   Goes in public/assets/ui.css
+
+   Link it in app/views/layout.php, LAST, after style.css, content.css,
+   topbar.css and sidenav.css:
+
+       <link rel="stylesheet" href="assets/ui.css">
+
+   Two sections, independent of each other:
+     1. the typeface
+     2. popups - the tracking payment-message look, applied everywhere
+
+   The certificates themselves are NOT affected by this file. sheet.php and
+   tracking_sheet.php are standalone pages that carry their own fonts, because
+   they reproduce printed documents and must not drift.
+   ========================================================================= */
+
+
+/* =========================================================================
+   1. TYPEFACE - Inter
+   -------------------------------------------------------------------------
+   Put InterVariable.woff2 in public/assets/fonts/. One file covers every
+   weight from thin to black. A .ttf works too - name it InterVariable.ttf and
+   it is picked up without changing anything here.
+
+   If the file is missing, everything still works: the stack falls back to
+   Segoe UI on Windows and the system face elsewhere. Nothing breaks, it just
+   looks like it did before.
+   ========================================================================= */
+
+@font-face {
+  font-family: "InterVariable";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/InterVariable.woff2") format("woff2"),
+       url("fonts/InterVariable.ttf") format("truetype");
+}
+
+@font-face {
+  font-family: "InterVariable";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/InterVariable-Italic.woff2") format("woff2"),
+       url("fonts/InterVariable-Italic.ttf") format("truetype");
+}
+
+:root {
+  --gt-font: "InterVariable", "Inter", "Segoe UI", system-ui, -apple-system,
+             "Helvetica Neue", Arial, sans-serif;
+  --gt-font-mono: "Consolas", "SF Mono", "DejaVu Sans Mono", monospace;
+}
+
+body {
+  font-family: var(--gt-font);
+  /* Inter's defaults are a little loose for dense screens. */
+  letter-spacing: -0.006em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Form controls do not inherit the page font on their own. */
+input, select, textarea, button,
+.button, .chip, .link-button {
+  font-family: var(--gt-font);
+}
+
+/* Headings tighten up a touch at larger sizes, which Inter wants. */
+h1, h2, h3, h4, legend {
+  font-family: var(--gt-font);
+  letter-spacing: -0.018em;
+}
+
+/* Figures that sit in columns line up: certificate numbers, dates, counts.
+   Inter has real tabular numerals, so this costs nothing. */
+table, .pager, .chip-count, .status-pill, .tile-value, .details td {
+  font-variant-numeric: tabular-nums;
+}
+
+code, kbd, pre, samp, .mono {
+  font-family: var(--gt-font-mono);
+}
+
+/* The summary sits in the navy bar. The ID is named explicitly because the
+   page's own rules target #note-title, and an ID beats .modal-head h2 whatever
+   order the stylesheets load in. */
+.modal-head h2,
+#note-title {
+  margin: 10px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* The registration and the separator follow the bar's colour rather than
+   whatever they were given for a white background. */
+.modal-head h2, .modal-head h2 .cert-sep,
+#note-title,    #note-title .cert-sep { color: inherit; }
+
+/* Status colours relit for navy — the green and amber used on white go muddy. */
+.modal-head h2 .status-valid,      #note-title .status-valid      { color: #B7E892; }
+.modal-head h2 .status-expired,    #note-title .status-expired,
+.modal-head h2 .status-pending,    #note-title .status-pending    { color: #FFD98A; }
+.modal-head h2 .status-voided,     #note-title .status-voided,
+.modal-head h2 .status-rejected,   #note-title .status-rejected   { color: #FFB3B3; }
+.modal-head h2 .status-superseded, #note-title .status-superseded { color: #C9D6E4; }
+
+
+
+main table td.row-links { white-space: nowrap; }
+main table td.row-links .sep { color: var(--c-muted); margin: 0 6px; }
+
+/* =========================================================================
+   2. POPUPS
+   -------------------------------------------------------------------------
+   The look from the tracking payment-message popup, applied to every popup
+   in the system.
+
+   It covers BOTH sets of markup, so nothing has to be rewritten:
+
+     the older pages   .modal  >  .modal-card  >  .modal-head / .modal-body
+     the tracking ones .trk-modal  >  .trk-box
+
+   Wide, centred, no backdrop, no inner scrollbar.
+   ========================================================================= */
+
+.modal,
+.trk-modal {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 2000;              /* above the top bar, which sits at 1002 */
+}
+
+/* Older pages show a popup by removing the hidden attribute. The rule above
+   would otherwise be beaten by whatever displays it, so this stays explicit. */
+.modal[hidden] { display: none !important; }
+.modal:not([hidden]) { display: block; }
+.trk-modal.on { display: block; }
+
+.modal-card,
+.trk-box {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;             /* only ever used by a very short window */
+  box-sizing: border-box;
+  background: #fff;
+  border: 1px solid #D7DEE5;
+  border-radius: 12px;
+  box-shadow: 0 18px 50px rgba(13, 79, 114, 0.28);
+  padding: 22px 24px 26px;
+}
+
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+}
+
+.modal-head h2,
+.modal-card h3,
+.trk-box h3 {
+  margin: 0 0 14px;
+  font-size: 19px;
+  line-height: 1.3;
+  color: #0D4F72;
+}
+.modal-head h2 { margin-bottom: 0; }
+
+.modal-close {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid #D7DEE5;
+  border-radius: 8px;
+  background: #fff;
+  color: #44505E;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+/* No colour change on hover - only the outline firms up. */
+.modal-close:hover,
+.modal-close:focus { border-color: #9AA7B4; }
+
+.modal-body { margin: 0; }
+
+/* Fields */
+.trk-f,
+.modal-body label {
+  display: block;
+  margin: 0 0 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #44505E;
+}
+
+.trk-f textarea, .trk-f input, .trk-f select,
+.modal-body textarea, .modal-body input:not([type=hidden]), .modal-body select {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  box-sizing: border-box;
+  padding: 9px 11px;
+  border: 1px solid #C9D3DC;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 400;
+  color: #1D2530;
+  background: #fff;
+  resize: vertical;
+}
+.trk-f textarea:focus, .trk-f input:focus,
+.modal-body textarea:focus, .modal-body input:focus {
+  outline: none;
+  border-color: #1890D0;
+  box-shadow: 0 0 0 3px rgba(24, 144, 208, 0.16);
+}
+
+.trk-hint,
+.modal-meta,
+.warn-note {
+  margin: 0 0 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #6B7786;
+  font-weight: 400;
+}
+.warn-note { color: #8A5A00; }
+
+/* The quoted payment message */
+.trk-msg {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  background: #F2F7FB;
+  border-left: 4px solid #1890D0;
+  border-radius: 6px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: #1D2530;
+  word-break: break-word;
+}
+
+/* Buttons along the bottom */
+.trk-foot,
+.pay-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+/* A details table inside a popup sits flush with the fields. */
+.modal-card .details,
+.trk-box .details { margin: 0 0 14px; }
+
+@media (max-width: 640px) {
+  .modal-card,
+  .trk-box {
+    width: calc(100vw - 20px);
+    padding: 18px 16px 20px;
+    border-radius: 10px;
+  }
+  .trk-foot,
+  .pay-edit-actions { flex-direction: column-reverse; }
+  .trk-foot > *,
+  .pay-edit-actions > * { width: 100%; }
+}
+
+
+/* =========================================================================
+   3. LEGIBILITY
+   -------------------------------------------------------------------------
+   Bigger text, darker greys, roomier controls.
+
+   The main problem was contrast, not size. content.css sets --c-muted to
+   #8793A3, which is 3.1:1 against white - under the 4.5:1 minimum for body
+   text. It is used for hints, field labels, the pager and the stat labels,
+   so a lot of the page was below the line. Redefining the two text colours
+   here fixes every one of those at once, because this file loads last.
+
+   Everything is scoped to main, so the top bar and side nav are untouched.
+   ========================================================================= */
+
+:root {
+  --c-body:  #3D4756;      /* was #4A5568 - now 9.4:1 on white */
+  --c-muted: #5C6775;      /* was #8793A3 (3.1:1) - now 5.8:1 */
+}
+
+main { line-height: 1.55; }
+
+/* ---------------------------------------------------------------- headings */
+main h1 { font-size: 26px; }
+main h2 { font-size: 17px; }
+
+/* -------------------------------------------------------------------- text */
+main .hint {
+  font-size: 14.5px;
+  line-height: 1.6;
+}
+main .error { font-size: 14.5px; }
+
+/* ------------------------------------------------------------------ tables */
+/* Up from 13.5px. The horizontal padding comes in a little to pay for it, so
+   wide tables take up about the same room as before. */
+main table { font-size: 14.5px; }
+main table th {
+  padding: 13px 14px;
+  font-size: 12px;
+  letter-spacing: .6px;
+}
+main table td {
+  padding: 13px 14px;
+  line-height: 1.45;
+}
+
+/* Registrations, serials and IMEIs read as one unit - they should not break
+   across two lines in a narrow column. */
+main table td:first-child,
+main table td:nth-child(2) { white-space: nowrap; }
+
+main td[class*="status-"] { font-size: 13.5px; font-weight: 600; }
+
+/* ------------------------------------------------------------ the controls */
+main .searchbar input,
+main .searchbar select {
+  padding: 12px 15px;
+  font-size: 15.5px;
+}
+
+main .button,
+main button[type=submit],
+main .chip {
+  font-size: 14.5px;
+}
+main .button,
+main button[type=submit] { padding: 11px 18px; }
+main .chip { padding: 8px 15px; font-size: 14px; }
+main .chip-count { font-size: 12px; padding: 2px 7px; }
+
+/* ------------------------------------------------------------------- forms */
+/* 11px uppercase in a light grey was the least readable thing on the page.
+   Bigger, darker, and with the letters spaced so the capitals still read. */
+main .field > label,
+main label.field,
+main .field-label,
+main fieldset legend {
+  font-size: 12.5px;
+  letter-spacing: .5px;
+  color: var(--c-body);
+  font-weight: 700;
+}
+
+main .field input,
+main .field select,
+main .field textarea,
+main input[type=text], main input[type=tel], main input[type=date],
+main input[type=email], main input[type=password],
+main select, main textarea {
+  padding: 12px 14px;
+  font-size: 15.5px;
+  line-height: 1.4;
+}
+
+/* A hint sits inside the label, so without this it inherits the label's
+   uppercase and bold and shouts at you. */
+main .field-hint, main .field-note {
+  font-size: 13px;
+  color: var(--c-muted);
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+/* --------------------------------------------------------- details tables */
+main table.details th {
+  font-size: 11.5px;
+  letter-spacing: .6px;
+  color: var(--c-body);
+}
+main table.details td { font-size: 14.5px; }
+
+/* ------------------------------------------------------------------ pager */
+main .pager, main .pager-info, main .per-page, main .per-page label {
+  font-size: 14px;
+}
+main .per-page label { white-space: nowrap; }
+main .pager select { font-size: 14px; padding: 7px 11px; }
+main .pager .button { font-size: 13.5px; padding: 8px 14px; }
+
+/* ------------------------------------------------------------------ tiles */
+main .stat-label { font-size: 13px; }
+main .stat-num { font-size: 29px; }
+
+@media (max-width: 760px) {
+  main h1 { font-size: 22px; }
+  main table { font-size: 14px; }
+  main table td, main table th { padding: 12px 11px; }
+}

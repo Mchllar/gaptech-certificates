@@ -61,6 +61,51 @@ $offset = ($page - 1) * $perPage;
 $rows = q("SELECT c.*, v.reg_no, cl.name AS client_name $from $whereSql
            ORDER BY c.issued_at DESC LIMIT $perPage OFFSET $offset", $params)->fetchAll();
 
+// For superseded rows, find the certificate that replaced them, so the row can
+// link to the one that is current as well as to itself. One query for the whole
+// page, not one per row.
+$currentFor = [];
+$plates = [];
+foreach ($rows as $row) {
+    if ($row['status'] === 'superseded') {
+        $plates[] = plate_key((string)$row['reg_no']);
+    }
+}
+if ($plates) {
+    $plates = array_values(array_unique($plates));
+    $marks = implode(',', array_fill(0, count($plates), '?'));
+    $found = q("SELECT DISTINCT ON (regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g'))
+                       regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g') AS plate,
+                       c.id
+                FROM certificates c
+                JOIN vehicles v ON v.id = c.vehicle_id
+                WHERE regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g') IN ($marks)
+                  AND c.approval_status = 'approved' AND c.status = 'issued'
+                ORDER BY regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g'),
+                         c.expiry_date DESC, c.number DESC", $plates)->fetchAll();
+    foreach ($found as $f) {
+        $currentFor[$f['plate']] = (int)$f['id'];
+    // Some superseded rows have no live replacement because the renewal is still
+// with accounts. Find those too, so the row says so instead of going quiet.
+$pendingFor = [];
+$missing = array_values(array_diff($plates, array_keys($currentFor)));
+if ($missing) {
+    $marks = implode(',', array_fill(0, count($missing), '?'));
+    $found = q("SELECT DISTINCT ON (regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g'))
+                       regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g') AS plate, c.id
+                FROM certificates c
+                JOIN vehicles v ON v.id = c.vehicle_id
+                WHERE regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g') IN ($marks)
+                  AND c.approval_status = 'pending'
+                ORDER BY regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g'),
+                         c.issued_at DESC", $missing)->fetchAll();
+    foreach ($found as $f) {
+        $pendingFor[$f['plate']] = (int)$f['id'];
+    }
+}
+    }
+}
+
 // Counts for the filter chips
 $counts = q("SELECT
     count(*) AS all_count,
@@ -97,7 +142,7 @@ $expiring = q("SELECT c.id, c.number, c.expiry_date, v.reg_no, cl.name AS client
 
 layout_top('Certificates');
 ?>
-<h1>Certificates</h1>
+<h1 class="page-title">Speed Govenor Certificates</h1>
 
 <?php if ((int)$counts['pending_count'] > 0): ?>
   <p class="hint" style="text-align:left">
@@ -145,7 +190,22 @@ layout_top('Certificates');
     <td><?= e(fmt_date($row['issue_date'])) ?></td>
     <td><?= e(fmt_date($row['expiry_date'])) ?></td>
     <td class="status-<?= strtolower(certificate_status($row)) ?>"><?= e(certificate_status($row)) ?></td>
-    <td><a href="certificate_view.php?id=<?= (int)$row['id'] ?>">Open</a></td>
+    <td class="row-links">
+      <?php
+        $key  = plate_key((string)$row['reg_no']);
+        $sup  = $row['status'] === 'superseded';
+        $cur  = $sup ? ($currentFor[$key] ?? null) : null;
+        $pend = ($sup && !$cur) ? ($pendingFor[$key] ?? null) : null;
+      ?>
+      <a href="certificate_view.php?id=<?= (int)$row['id'] ?>">Open</a>
+      <?php if ($cur): ?>
+        <span class="sep">&middot;</span>
+        <a href="certificate_view.php?id=<?= $cur ?>">View current</a>
+      <?php elseif ($pend): ?>
+        <span class="sep">&middot;</span>
+        <a href="certificate_view.php?id=<?= $pend ?>" style="color:gray;">Pending Approval</a>
+      <?php endif; ?>
+    </td>
   </tr>
   <?php endforeach; ?>
   <?php if (!$rows): ?><tr><td colspan="8">Nothing matches those filters.</td></tr><?php endif; ?>

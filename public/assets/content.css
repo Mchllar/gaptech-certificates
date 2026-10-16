@@ -274,3 +274,11 @@ main .stat-link .stat-num { color: #8A5A00; }
 
 
 .dash { display: block; text-align: center; color: #A8B4C2; }
+
+.modal .modal-meta {
+  white-space: pre-line; line-height: 1.5;
+  margin: 0 0 14px; padding: 12px 14px;
+  background: #F4F9FD; border-left: 3px solid #1890D0;
+  border-radius: 0 8px 8px 0;
+  font-size: 13px; color: #27303D;
+}

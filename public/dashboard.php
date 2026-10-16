@@ -239,8 +239,8 @@ layout_top('Dashboard');
 .dash-mini div span { font-size: 11.5px; color: #8793A3; }
 </style>
 
-<h1>Dashboard</h1>
-<p class="hint">Everything below counts approved certificates unless it says otherwise.</p>
+<h1>Speed Governor Dashboard</h1>
+<p class="hint">Everything below counts approved speed govenor certificates unless it says otherwise.</p>
 
 <div class="dash-tiles">
   <a class="dash-tile dash-ok" href="index.php?status=valid">

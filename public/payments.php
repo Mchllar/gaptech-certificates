@@ -98,9 +98,9 @@ $periodNames = ['month' => 'This month', 'last' => 'Last month',
                 'quarter' => 'Last 90 days', 'all' => 'Everything'];
 
 layout_top('Payments');
-layout_back('approvals.php', 'Back to approvals');
+layout_back('approvals.php', 'Back to Approvals');
 ?>
-<h1>Payments Register</h1>
+<h1  class="page-title">Payments Register</h1>
 <?php if (!empty($_SESSION['flash_error'])): ?>
   <p class="error"><?= e($_SESSION['flash_error']) ?></p><?php unset($_SESSION['flash_error']); ?>
 <?php endif; ?>
@@ -108,7 +108,7 @@ layout_back('approvals.php', 'Back to approvals');
   <p class="hint"><?= e($_SESSION['flash_ok']) ?></p><?php unset($_SESSION['flash_ok']); ?>
 <?php endif; ?>
 
-<p class="hint">Every certificate accounts has reviewed, with the payment recorded against it.</p>
+<p class="hint">Every certificate accounts has been reviewed, with the payment recorded against it.</p>
 
 <div class="stat-row">
   <div class="stat">
@@ -121,7 +121,7 @@ layout_back('approvals.php', 'Back to approvals');
   </div>
   <a class="stat stat-link" href="approvals.php">
     <span class="stat-num"><?= $waiting ?></span>
-    <span class="stat-label">Waiting for you now</span>
+    <span class="stat-label">Pending approvals</span>
   </a>
 </div>
 
@@ -290,15 +290,24 @@ layout_back('approvals.php', 'Back to approvals');
     check();
   }
 
-  document.querySelectorAll('.note-open').forEach(function (btn) {
+   document.querySelectorAll('.note-open').forEach(function (btn) {
     if (!btn.dataset.id) { return; }          // skips the "Use it" button inside the popup
     btn.addEventListener('click', function () {
       body.innerHTML = '<p class="modal-meta">Loading&hellip;</p>';
+      var title = document.getElementById('note-title');
+      if (title) { title.textContent = 'Payment'; }
       show();
       fetch('cert_summary.php?id=' + encodeURIComponent(btn.dataset.id), { credentials: 'same-origin' })
         .then(function (r) { if (!r.ok) { throw new Error(r.status); } return r.text(); })
         .then(function (html) {
           body.innerHTML = html;
+          // The summary line belongs in the navy bar, not at the top of the body.
+          var meta = body.querySelector('.cert-head');
+          if (title && meta) {
+            title.innerHTML = meta.innerHTML;
+            meta.remove();
+          }
+
           wirePayEdit(body);
         })
         .catch(function () {

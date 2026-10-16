@@ -98,9 +98,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $users = q('SELECT * FROM users ORDER BY active DESC, name')->fetchAll();
 layout_top('Staff accounts');
-layout_back('index.php', 'Back to certificates');
+layout_back('index.php', 'Back to SG. Certificates');
 ?>
-<h1>Administrator Accounts</h1>
+<h1  class="page-title">Administrator Accounts</h1>
 
 <?php if ($newPassword): ?>
   <div class="verify-result status-box-valid">

@@ -34,13 +34,7 @@ $gtRenewExpiry = date('Y-m-d', strtotime('+1 year -1 day'));
                     placeholder="Paste the M-Pesa or bank confirmation here"></textarea>
         </label>
 
-        <label>Payment reference <span class="req">*</span>
-          <input name="payment_ref" id="renew-ref" required
-                 style="text-transform:uppercase" placeholder="Filled in from the message">
-        </label>
-
-        <p class="warn-note">Issued today, expiring
-          <strong><?= e(fmt_date($gtRenewExpiry)) ?></strong>
+        <p class="warn-note">Issued today, expiring on <?= e(fmt_date($gtRenewExpiry)) ?>.</p>
         <div class="pay-edit-actions" >
           <button type="submit">Create renewal</button>
         </div>
@@ -57,7 +51,6 @@ $gtRenewExpiry = date('Y-m-d', strtotime('+1 year -1 day'));
   var idField = document.getElementById('renew-id');
   var what    = document.getElementById('renew-what');
   var note    = document.getElementById('renew-note');
-  var ref     = document.getElementById('renew-ref');
 
   function shut() {
     modal.setAttribute('hidden', '');
@@ -74,23 +67,14 @@ $gtRenewExpiry = date('Y-m-d', strtotime('+1 year -1 day'));
     return (/[0-9]/.test(m[1]) && /[A-Z]/.test(m[1])) ? m[1] : '';
   }
 
-  var manual = false;
-  ref.addEventListener('input', function () { manual = true; });
-  note.addEventListener('input', function () {
-    if (manual) { return; }
-    var found = extractRef(note.value);
-    if (found) { ref.value = found; }
-  });
-
   document.querySelectorAll('.renew-open').forEach(function (btn) {
     btn.addEventListener('click', function () {
       idField.value = btn.dataset.id || '';
       what.textContent = 'Renewing ' + (btn.dataset.reg || '')
-        + (btn.dataset.client ? ' · ' + btn.dataset.client : '')
-        + (btn.dataset.cert ? ' · certificate ' + btn.dataset.cert : '');
+        + (btn.dataset.client ? ' \n ' + btn.dataset.client : '')
+        + (btn.dataset.cert ? ' \nCertificate ' + btn.dataset.cert : '');
 
       note.value = '';
-      ref.value = '';
       manual = false;
 
       modal.removeAttribute('hidden');

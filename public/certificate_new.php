@@ -132,11 +132,11 @@ function field(string $name, string $label, string $value, array $opts = []): vo
 }
 
 layout_top('New certificate');
-layout_back('index.php', 'Back to certificates');
+layout_back('index.php', 'Back to SG. Certificates');
 ?>
-<h1>New Certificate</h1>
+<h1  class="page-title">New Speed Govenor Certificate</h1>
 <p class="hint">All fields are required. The governor model, set speed, technician and expiry date are
-filled in from Settings. The certificate goes to accounts when you save, and takes its number once
+filled in from Settings. The certificate goes to accounts when you save, and is assigned a unique number once
 they confirm the payment.</p>
 
 <?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
