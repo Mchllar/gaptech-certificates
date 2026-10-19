@@ -1,9 +1,22 @@
-<?php require_once __DIR__ . '/sheet_helpers.php'; ?>
+<?php 
+/**
+ * Set by render_sheet() in app/certificates.php, which declares them global and
+ * then includes this file. Declared here too so the contract is visible and the
+ * editor stops reporting them as undefined.
+ */
+global $d, $assets, $zoom, $qr, $certno_img, $logo, $logo_gold, $kebs, $sticker_bg, $microtext;
+
+require_once __DIR__ . '/sheet_helpers.php';
+?>
+
+require_once __DIR__ . '/sheet_helpers.php'; ?>
+
+global $d, $assets, $zoom, $qr, $certno_img, $logo, $logo_gold, $kebs, $sticker_bg, $microtext;
+
 <!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>Certificate <?= e($d['cert']['number']) ?> - <?= e($d['vehicle']['reg_no']) ?></title>
 <style>
   /* All coordinates are in "sheet units": the original A4 landscape sheet scanned at 200 dpi
      (2338 x 1653). The body zoom converts them to the PDF page. */

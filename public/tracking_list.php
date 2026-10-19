@@ -138,7 +138,7 @@ layout_top('Installations');
       'pending'    => ['Pending', $counts['pending_count']],
       'valid'      => ['Valid', $counts['valid_count']],
       'expired'    => ['Expired', $counts['expired_count']],
-      'superseded' => ['Superseded', $counts['superseded_count']],
+      'superseded' => ['Replaced', $counts['superseded_count']],
       'rejected'   => ['Rejected', $counts['rejected_count']],
       'voided'     => ['Voided', $counts['voided_count']],
   ] as $key => $info): ?>

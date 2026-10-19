@@ -93,9 +93,9 @@ layout_back('payments.php', 'Back to SG. Records');
       <fieldset>
         <legend>Payment</legend>
         <?php if (trim((string)($cert['payment_ref'] ?? '')) !== ''): ?>
-          <p class="hint" style="text-align:left; margin:0 0 10px; color:#8A5A00">
+          <!-- <p class="hint" style="text-align:left; margin:0 0 10px; color:#8A5A00">
             The administrator who issued this recorded a payment. Check it against the
-            statement before approving &mdash; it has not been verified by accounts.</p>
+            statement before approving &mdash; it has not been verified by accounts.</p> -->
         <?php endif; ?>
         <label class="field" style="width:100%">Payment message
           <span class="field-row">

@@ -42,25 +42,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 layout_top('Sign in');
 ?>
+<style>
+    .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+        /* ---- a little wider once there is room ---- */
+    .vfy h1.vfy-title {
+        margin: 0 0 6px;
+        font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+        line-height: 1.25; color: #0D4F72;
+        padding-left: 12px; border-left: 4px solid #8CC63F;
+    }
+    @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+    .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5; text-align: center; }
+</style>
+
+
 <?php if ($error): ?><p class="error"><?= e($error) ?></p><?php endif; ?>
     <?php if (!empty($_GET['timeout'])): ?>
         <p class="hint">You were signed out after 30 minutes of inactivity.</p>
     <?php endif; ?>
-    <h1 style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 1.75rem; font-weight: 700; color: #0f172a; margin: 0 0 1rem 0; padding-left: 0.875rem; border-left: 4px solid #3b82f6; letter-spacing: -0.025em; line-height: 1.25;"><?= $as === 'accounts' ? 'Accounts' : 'Administrator' ?> Module</h1>
-    <p class="hint"style="color: darkgray; margin: 4px 0 10px 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">Sign In to Continue</p>
 
-    <form method="post" class="narrow">
-        <input type="hidden" name="csrf" value="<?= e($token) ?>">
-        <label>Username 
-            <input name="username" required autofocus autocapitalize="none" autocomplete="username"
-            value="<?= e($_POST['username'] ?? '') ?>">
-        </label>
-        <label>Password 
-            <input name="password" type="password" required autocomplete="current-password">
-        </label>
-        <button type="submit">Sign in</button>
-    </form>
-    <p class="hint"><a href="change_password.php">Change your password</a> &middot;
-    <a href="forgot_password.php">Forgot your password?</a></p>
-    <p class="hint"><a href="welcome.php">&larr; Back</a></p>
+    <div class="vfy">
+    <h1 class="vfy-title"><?= $as === 'accounts' ? 'Accounts' : 'Administrator' ?> Module</h1>
+    <p class="vfy-sub">Sign In to Continue</p>
+        <form method="post" class="narrow">
+            <input type="hidden" name="csrf" value="<?= e($token) ?>">
+            <label>Username 
+                <input name="username" required autofocus autocapitalize="none" autocomplete="username"
+                value="<?= e($_POST['username'] ?? '') ?>">
+            </label>
+            <label>Password 
+                <input name="password" type="password" required autocomplete="current-password">
+            </label>
+            <button type="submit">Sign in</button>
+        </form>
+        <p class="hint"><a href="change_password.php">Change your password</a> &middot;
+        <a href="forgot_password.php">Forgot your password?</a></p>
+        <p class="hint"><a href="welcome.php">&larr; Back</a></p>
+    </div>
 <?php layout_bottom(); ?>

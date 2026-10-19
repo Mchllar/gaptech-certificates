@@ -133,7 +133,7 @@ if ($blocked) {
             $detail = 'This certificate ran out on ' . fmt_date($cert['expiry_date'])
                     . '. The vehicle needs a renewal.';
             break;
-        case 'Superseded':
+        case 'Replaced':
             $tone = 'warn';
             $headline = 'Replaced';
             $detail = 'A newer certificate has been issued for this vehicle, so this one no longer '

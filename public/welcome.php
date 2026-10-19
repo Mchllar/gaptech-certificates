@@ -15,9 +15,23 @@ if (current_client()) {
 
 layout_top('Welcome', 'public');
 ?>
+<style>
+  .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+     /* ---- a little wider once there is room ---- */
+  .vfy h1.vfy-title {
+    margin: 0 0 6px;
+    font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+    line-height: 1.25; color: #0D4F72;
+    padding-left: 12px; border-left: 4px solid #8CC63F;
+  }
+  @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+  .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5; text-align: center; }
+
+</style>
 <!-- <h1 class="auth-title">Speed Governor <span>Certificates System</span></h1> -->
-   <h1 style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; font-size: 1.75rem; font-weight: 700; color: #0f172a; margin: 0 0 1rem 0; padding-left: 0.875rem; border-left: 4px solid #3b82f6; letter-spacing: -0.025em; line-height: 1.25;">Speed Governor Certificates System</h1>
-    <p class="hint"style="color: navyblue; margin: 4px 0 10px 20px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">Choose how to Continue</p>
+<div class="vfy">
+  <h1 class="vfy-title">Certificates System</h1>
+  <p class="vfy-sub">Choose how to Continue</p>
 <div class="door-cards">
   <a class="door door-admin" href="login.php">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0"
@@ -62,5 +76,6 @@ layout_top('Welcome', 'public');
     <span class="door-title">Verify a certificate</span>
     <span class="door-text">No sign in needed</span>
   </a>
+</div>
 </div>
 <?php layout_bottom(); ?>

@@ -71,7 +71,7 @@ function tracking_status(array $cert): string
         return 'Voided';
     }
     if ($cert['status'] === 'superseded') {
-        return 'Superseded';
+        return 'Replaced';
     }
     return strtotime($cert['expiry_date']) < strtotime(date('Y-m-d')) ? 'Expired' : 'Valid';
 }

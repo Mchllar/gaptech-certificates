@@ -1,4 +1,5 @@
 <?php
+
 /**
  * The tracking installation certificate: A4 portrait, printed in full.
  *
@@ -19,6 +20,11 @@
  * Authority, so the official artwork has to be supplied rather than redrawn.
  */
 
+global $d, $assets, $zoom, $qr, $certno_img, $logo, $logo_gold, $kebs, $sticker_bg, $microtext;
+
+require_once __DIR__ . '/sheet_helpers.php';
+
+
 $assetDir = ROOT_DIR . '/public/assets';
 $have = fn(string $f): bool => $f !== '' && is_file($assetDir . '/' . basename($f));
 
@@ -33,7 +39,7 @@ $sigSrc    = $have($sigFile)   ? $assets . '/' . basename($sigFile)   : '';
 $stampSrc  = $have($stampFile) ? $assets . '/' . basename($stampFile) : '';
 
 $status    = $d['cert']['status'] ?? 'Valid';
-$watermark = in_array($status, ['Voided', 'Superseded', 'Expired', 'Pending approval', 'Rejected'], true)
+$watermark = in_array($status, ['Voided', 'Replaced', 'Expired', 'Pending approval', 'Rejected'], true)
     ? strtoupper($status) : '';
 
 // The sentence reads "on __/__/20__", so the installation date is split three ways.
