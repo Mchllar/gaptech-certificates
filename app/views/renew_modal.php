@@ -17,26 +17,40 @@ $gtRenewExpiry = date('Y-m-d', strtotime('+1 year -1 day'));
 <div id="renew-modal" class="modal" hidden>
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="renew-title">
     <div class="modal-head">
-      <h2 id="renew-title" style="color:white;">Renew Certificate</h2>
+      <h2 id="renew-title">Renew certificate</h2>
       <button type="button" class="modal-close" aria-label="Close">&times;</button>
     </div>
 
     <div class="modal-body">
       <p class="modal-meta" id="renew-what"></p>
+
       <form method="post" action="renew.php" class="pay-edit">
         <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
         <input type="hidden" name="id" id="renew-id" value="">
         <input type="hidden" name="back"
                value="<?= e(basename((string)($_SERVER['SCRIPT_NAME'] ?? 'index.php'))) ?>">
 
-        <label>Payment message <span class="req">*</span>
-          <textarea name="payment_note" id="renew-note" rows="4" required
-                    placeholder="Paste the M-Pesa or bank confirmation here"></textarea>
+        <p class="warn-note">Issued today, expiring
+          <strong><?= e(fmt_date($gtRenewExpiry)) ?></strong>.
+          Everything else carries over from the current certificate.</p>
+
+        <label>Payment message
+          <textarea name="payment_note" id="renew-note" rows="3"
+                    placeholder="Paste it if you have it &mdash; or leave this to accounts"></textarea>
         </label>
 
-        <p class="warn-note">Issued today, expiring on <?= e(fmt_date($gtRenewExpiry)) ?>.</p>
-        <div class="pay-edit-actions" >
-          <button type="submit">Create renewal</button>
+        <label>LPO number
+          <input name="lpo_no" id="renew-lpo" maxlength="60"
+                 style="text-transform:uppercase"
+                 placeholder="If the client is paying later against an LPO">
+        </label>
+
+        <p class="warn-note">Both are optional. Accounts can fill in either when
+          they approve. The certificate takes its number, and becomes available to
+          the client, only once they do.</p>
+
+        <div class="pay-edit-actions">
+          <button type="submit">Send to accounts</button>
         </div>
       </form>
     </div>
@@ -50,36 +64,27 @@ $gtRenewExpiry = date('Y-m-d', strtotime('+1 year -1 day'));
 
   var idField = document.getElementById('renew-id');
   var what    = document.getElementById('renew-what');
-  var note    = document.getElementById('renew-note');
 
   function shut() {
     modal.setAttribute('hidden', '');
     document.body.style.overflow = '';
   }
 
-  function extractRef(text) {
-    var up = (text || '').toUpperCase();
-    var m = up.match(/M[-\s]?PESA\s*REF[:.\s]*([A-Z0-9]{8,15})/)
-         || up.match(/\bREF(?:ERENCE)?[:.\s]*([A-Z0-9]{8,15})/)
-         || up.match(/\b([A-Z0-9]{10})\b/);
-    if (!m) { return ''; }
-    // a real reference mixes letters and digits - this skips phone numbers and amounts
-    return (/[0-9]/.test(m[1]) && /[A-Z]/.test(m[1])) ? m[1] : '';
-  }
-
   document.querySelectorAll('.renew-open').forEach(function (btn) {
     btn.addEventListener('click', function () {
       idField.value = btn.dataset.id || '';
       what.textContent = 'Renewing ' + (btn.dataset.reg || '')
-        + (btn.dataset.client ? ' \n ' + btn.dataset.client : '')
-        + (btn.dataset.cert ? ' \nCertificate ' + btn.dataset.cert : '');
+        + (btn.dataset.client ? ' · ' + btn.dataset.client : '')
+        + (btn.dataset.cert ? ' · certificate ' + btn.dataset.cert : '');
 
-      note.value = '';
-      manual = false;
+      var note = document.getElementById('renew-note');
+      var lpo  = document.getElementById('renew-lpo');
+      if (note) { note.value = ''; }
+      if (lpo)  { lpo.value = ''; }
 
       modal.removeAttribute('hidden');
       document.body.style.overflow = 'hidden';
-      note.focus();
+      if (note) { note.focus(); }
     });
   });
 

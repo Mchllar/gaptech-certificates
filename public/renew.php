@@ -3,12 +3,12 @@
  * Renew a certificate in one step.
  *
  * Everything carries over from the certificate being renewed - vehicle, governor,
- * customer, installation - so nothing can be retyped wrongly. The only thing the
- * administrator supplies is the payment message.
+ * customer, installation - so nothing can be retyped wrongly.
  *
- * The renewal is created as PENDING with that message attached. Accounts still
- * approves it; this only saves them pasting the message themselves. An administrator
- * must never be able to both issue and approve.
+ * The administrator MAY record a payment message or an LPO number if they have
+ * one, and may leave both blank if they do not - accounts can fill either in when
+ * they approve. Whichever of them types it, nothing is issued until accounts
+ * approve. An administrator must never be able to both issue and approve.
  */
 require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/certificates.php';
@@ -21,23 +21,6 @@ $old = q('SELECT * FROM certificates WHERE id = ?', [$id])->fetch();
 if (!$old) {
     http_response_code(404);
     exit('No such certificate.');
-}
-
-$note = trim((string)($_POST['payment_note'] ?? ''));
-
-if ($note === '') {
-    $_SESSION['flash_error'] = 'Paste the payment message to renew.';
-    redirect($_POST['back'] ?? 'index.php');
-}
-
-// The reference is read out of the message rather than typed, so it cannot
-// disagree with the confirmation it came from.
-$ref = extract_payment_ref($note);
-if ($ref === '') {
-    $_SESSION['flash_error'] = 'No payment reference could be found in that message. '
-        . 'Check the whole confirmation was pasted, or renew from the certificate page '
-        . 'where the reference can be typed in.';
-    redirect($_POST['back'] ?? 'index.php');
 }
 
 // A year from today, ending the day before the anniversary: renewed 13 Oct 2026
@@ -73,14 +56,25 @@ $in = [
 $new   = create_certificate($in, $user);
 $newId = is_array($new) ? (int)$new['id'] : (int)$new;
 
-// Attach the payment the administrator collected, so accounts only has to check it.
-q("UPDATE certificates SET payment_ref = ?, payment_note = ? WHERE id = ?",
-    [$ref, $note, $newId]);
+// Whatever the administrator had to hand. Both are optional, and neither issues
+// anything - payment_ref is deliberately NOT set here, because confirming money
+// arrived is accounts' decision and an administrator must not pre-empt it by
+// filling in the field that approval checks.
+$note = trim((string)($_POST['payment_note'] ?? ''));
+$lpo  = trim((string)($_POST['lpo_no'] ?? ''));
 
-audit('renew_certificate', 'certificate', $newId,
-    ['renewed_from' => $id, 'payment_ref' => $ref]);
+if ($note !== '' || $lpo !== '') {
+    q('UPDATE certificates SET payment_note = ?, lpo_no = ? WHERE id = ?',
+      [$note, $lpo, $newId]);
+}
+
+audit('renew_certificate', 'certificate', $newId, [
+    'renewed_from' => $id,
+    'note_given'   => $note !== '',
+    'lpo_no'       => $lpo,
+]);
 
 $_SESSION['flash_ok'] = 'Renewal created for ' . ($s['vehicle']['reg_no'] ?? 'the vehicle')
-    . ', expiring ' . fmt_date($expiry) . '. It is with accounts for approval.';
+    . ', expiring ' . fmt_date($expiry) . '. It is with accounts to approve.';
 
 redirect($_POST['back'] ?? 'index.php');

@@ -107,9 +107,9 @@ $gtName = $gtUser ? (string)($gtUser['name'] ?? '') : (string)($gtClient['name']
 
   <nav class="gt-nav">
     <?php if ($gtRole === 'accounts'): ?>
-      <?= gt_link('approvals.php', 'approvals', 'Approve SG. Certificates') ?>
-      <?= gt_link('payments.php', 'payments', 'SG. Records') ?>
-      <?= gt_link('tracking_list.php', 'certs', 'Tracker Certificates') ?>
+      <?= gt_link('approvals.php', 'approvals', 'Review SG. Certificates') ?>
+      <?= gt_link('payments.php', 'payments', 'SG. Certificates') ?>
+      <?= gt_link('tracking_list.php', 'certs', 'Tracking Certificates') ?>
       <?= gt_link('verify.php', 'verify', 'Verify a SG. Certificate') ?>
       <?= gt_link('change_password.php', 'password', 'Change Password') ?>
 
@@ -120,8 +120,7 @@ $gtName = $gtUser ? (string)($gtUser['name'] ?? '') : (string)($gtClient['name']
     <?php else: ?>
       <?= gt_link('dashboard.php', 'dashboard', 'SG. Dashboard') ?>
       <?= gt_link('index.php', 'certs', 'SG. Certificates') ?>
-      <?= gt_link('certificate_new.php', 'new', 'New SG. Certificate') ?>
-      <?= gt_link('tracking_list.php', 'certs', 'Tracker Installations') ?>
+      <?= gt_link('tracking_list.php', 'certs', 'Tracking Installations') ?>
       <?= gt_link('verify.php', 'verify', 'Verify a SG. Certificate') ?>
       <?= gt_link('client_access.php', 'clients', 'Client Portal Access') ?>
       <?= gt_link('user_admin.php', 'clients', 'Staff Accounts') ?>

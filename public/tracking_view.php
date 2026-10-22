@@ -111,7 +111,7 @@ if (!$cert) {
     layout_top('Installation certificate');
     echo '<h1>Not found</h1><p class="error">There is no installation certificate with that '
        . 'reference. It may have been opened from an old link.</p>'
-       . '<p><a class="button" href="tracking_list.php">Back to Tracker Installations</a></p>';
+       . '<p><a class="button" href="tracking_list.php">Back to installations</a></p>';
     layout_bottom();
     exit;
 }
@@ -134,7 +134,7 @@ if ($approved && !$live) {
 }
 
 layout_top('Installation ' . tracking_label($cert));
-layout_back('tracking_list.php', 'Back to Tracker Installations');
+layout_back('tracking_list.php', 'Back to installations');
 ?>
 <h1><?= e(tracking_label($cert)) ?>
   <span class="status-pill status-<?= e(strtolower(str_replace(' ', '-', $status))) ?>">
@@ -177,7 +177,9 @@ layout_back('tracking_list.php', 'Back to Tracker Installations');
   <tr><th>Chassis no.</th><td><?= e($cert['chassis_no']) ?></td>
       <th>Engine no.</th><td><?= e($cert['engine_no']) ?></td></tr>
   <tr><th>Colour</th><td><?= e($cert['colour']) ?></td>
-      <th>Track IMEI</th><td><?= e($cert['imei']) ?></td></tr>
+      <?php $vwImeis = tracking_imeis((int)$cert['id']); ?>
+      <th>Track IMEI<?= count($vwImeis) > 1 ? 's' : '' ?></th>
+      <td><?= e($vwImeis ? implode(' / ', $vwImeis) : (string)$cert['imei']) ?></td></tr>
   <tr><th>Customer</th><td><?= e($cert['client_name']) ?></td>
       <th>Contact</th><td><?= e($cert['client_phone']) ?></td></tr>
   <tr><th>Ownership</th><td><?= e($cert['ownership']) ?></td>
@@ -188,7 +190,7 @@ layout_back('tracking_list.php', 'Back to Tracker Installations');
   <tr><th>Subscription</th><td><?= e(fmt_date($cert['subscription_date'])) ?></td>
       <th>Expires</th><td><?= e(fmt_date($cert['expiry_date'])) ?></td></tr>
   <?php endif; ?>
-  <tr><th>Raised by</th><td><?= e((string)$cert['issued_by_name']) ?></td>
+  <tr><th>Raised by</th><td style="text-transform: uppercase;"><?= e((string)$cert['issued_by_name']) ?></td>
       <th>Raised on</th><td><?= e(fmt_date(substr((string)$cert['issued_at'], 0, 10))) ?></td></tr>
   <?php if ($approved): ?>
   <tr><th>Approved by</th><td><?= e((string)$cert['decided_by_name']) ?></td>
@@ -206,7 +208,14 @@ layout_back('tracking_list.php', 'Back to Tracker Installations');
 <!-- ------------------------------------------------------------------ -->
 <!-- Payment                                                            -->
 <!-- ------------------------------------------------------------------ -->
-<?php if (!$rejected): ?>
+<?php
+  // Nothing recorded yet means nothing to show. Two empty dashes under a heading
+  // called Payment read as a fault on the page, and they sit directly above the
+  // form that is there to fill them in.
+  $trkHasPayment = trim((string)$cert['payment_ref']) !== ''
+                || trim((string)$cert['payment_note']) !== '';
+?>
+<?php if (!$rejected && $trkHasPayment): ?>
 <h2>Payment</h2>
 <table class="details">
   <tr><th>Reference</th>
@@ -344,7 +353,8 @@ layout_back('tracking_list.php', 'Back to Tracker Installations');
       customer and the original installation date. Only the subscription dates move.</p>
     <table class="details" style="margin:0 0 14px">
       <tr><th>Vehicle</th><td><?= e($cert['reg_no']) ?></td>
-          <th>IMEI</th><td><?= e($cert['imei']) ?></td></tr>
+          <th>IMEI<?= count(tracking_imeis((int)$cert['id'])) > 1 ? 's' : '' ?></th>
+          <td><?= e((string)$cert['imei']) ?></td></tr>
       <tr><th>New subscription</th><td><?= e(fmt_date(date('Y-m-d'))) ?></td>
           <th>New expiry</th><td id="renew-expiry"><?= e(fmt_date(default_expiry(date('Y-m-d'), 12))) ?></td></tr>
     </table>

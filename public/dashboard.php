@@ -16,11 +16,12 @@ $user = require_admin();
 $counts = q("SELECT
     count(*) AS total,
     count(*) FILTER (WHERE approval_status = 'approved' AND status = 'issued'
+                     AND issue_date <= current_date
                      AND expiry_date >= current_date) AS valid,
     count(*) FILTER (WHERE approval_status = 'approved' AND status = 'issued'
-                     AND expiry_date BETWEEN current_date AND current_date + 30) AS soon,
+                     AND issue_date > current_date) AS scheduled,
     count(*) FILTER (WHERE approval_status = 'approved' AND status = 'issued'
-                     AND expiry_date < current_date) AS expired,
+                     AND expiry_date BETWEEN current_date AND current_date + 30) AS soon,
     count(*) FILTER (WHERE approval_status = 'pending')  AS pending,
     count(*) FILTER (WHERE approval_status = 'rejected') AS rejected,
     count(*) FILTER (WHERE status = 'superseded') AS superseded,
@@ -173,16 +174,17 @@ function gt_bars(array $rows): string
 
 $mix = [
     ['Valid',       (int)$counts['valid'],      '#2E9E4F'],
+    ['Scheduled (Paid but previous cert is yet to expire)',   (int)$counts['scheduled'], '#8FCB9B'],
     ['Expired',     (int)$counts['expired'],    '#E0912F'],
-    ['Pending',     (int)$counts['pending'],    '#1890D0'],
-    ['Superseded',  (int)$counts['superseded'], '#A3B0BE'],
+    ['Pending Approval', (int)$counts['pending'],    '#1890D0'],
+    ['Replaced',  (int)$counts['superseded'], '#A3B0BE'],
     ['Rejected',    (int)$counts['rejected'],   '#C3121A'],
     ['Voided',      (int)$counts['voided'],     '#5B6472'],
 ];
 
 $typeColours = ['#0D4F72', '#8CC63F', '#1890D0', '#E0912F'];
 
-layout_top('Dashboard');
+layout_top('Speed Governor Dashboard');
 ?>
 <style>
 .dash-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -237,20 +239,40 @@ layout_top('Dashboard');
 .dash-mini div b { display: block; font-size: 22px; font-weight: 700; color: #0D4F72;
                    font-variant-numeric: tabular-nums; }
 .dash-mini div span { font-size: 11.5px; color: #8793A3; }
+
+.vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+    /* ---- a little wider once there is room ---- */
+.vfy h1.vfy-title {
+    margin: 0 0 6px;
+    font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+    line-height: 1.25; color: #0D4F72;
+    padding-left: 12px; border-left: 4px solid #8CC63F;
+}
+@media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+.vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5; }
 </style>
+<div class="vfy">
+  <h1 class="vfy-title">Speed Governor Dashboard</h1>
+  <p class="vfy-sub">Everything below counts approved speed governor certificates unless it says otherwise.</p>
 
-<h1>Speed Governor Dashboard</h1>
-<p class="hint">Everything below counts approved speed govenor certificates unless it says otherwise.</p>
+  <div class="dash-tiles">
+    <a class="dash-tile dash-ok" href="index.php?status=valid">
+      <b><?= (int)($counts['valid'] ?? 0) ?></b><span>Valid Certificates</span></a>
 
-<div class="dash-tiles">
-  <a class="dash-tile dash-ok" href="index.php?status=valid">
-    <b><?= (int)$counts['valid'] ?></b><span>Valid right now</span></a>
-  <a class="dash-tile dash-warn" href="index.php?status=valid">
-    <b><?= (int)$counts['soon'] ?></b><span>Expiring within 30 days</span></a>
-  <a class="dash-tile dash-bad" href="index.php?status=expired">
-    <b><?= (int)$counts['expired'] ?></b><span>Already expired</span></a>
-  <a class="dash-tile dash-info" href="index.php?status=pending">
-    <b><?= (int)$counts['pending'] ?></b><span>Waiting for accounts</span></a>
+    <a class="dash-tile dash-warn" href="index.php?status=valid">
+      <b><?= (int)($counts['soon'] ?? 0) ?></b><span>Expiring within 30 days</span></a>
+
+    <a class="dash-tile dash-bad" href="index.php?status=expired">
+      <b><?= (int)($counts['expired'] ?? 0) ?></b><span>Expired Certificates</span></a>
+
+    <a class="dash-tile dash-info" href="index.php?status=pending">
+      <b><?= (int)($counts['pending'] ?? 0) ?></b><span>Awaiting Approval</span></a>
+
+    <?php if (!empty($counts['scheduled'])): ?>
+      <a class="dash-tile dash-sched" href="index.php?status=scheduled">
+        <b><?= (int)$counts['scheduled'] ?></b><span>Scheduled</span></a>
+    <?php endif; ?>
+  </div>
 </div>
 
 <div class="dash-grid two">

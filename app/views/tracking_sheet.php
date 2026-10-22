@@ -1,5 +1,4 @@
 <?php
-
 /**
  * The tracking installation certificate: A4 portrait, printed in full.
  *
@@ -15,22 +14,42 @@
  * Measurements are in millimetres, so what the browser shows and what comes out of
  * the printer are the same size.
  *
- * NOTE on the Communications Authority mark: this file prints assets/ca_logo.png if
- * that file exists and leaves the space empty if it does not. The mark belongs to the
- * Authority, so the official artwork has to be supplied rather than redrawn.
+ * NOTE on the Communications Authority mark: this file prints assets/ca_logo.* if
+ * such a file exists - .png, .jpg, .svg, it does not matter - and leaves the space
+ * blank if it does not. The mark belongs to the Authority, so the official artwork
+ * has to be supplied rather than redrawn.
  */
 
-global $d, $assets, $zoom, $qr, $certno_img, $logo, $logo_gold, $kebs, $sticker_bg, $microtext;
-
-require_once __DIR__ . '/sheet_helpers.php';
-
+/**
+ * Supplied by render_tracking_sheet(), which includes this file. Declared here so
+ * the editor can see where they come from - the values themselves are set by the
+ * caller, and this block has no effect at run time.
+ *
+ * @var array  $d             the frozen snapshot: everything printed below
+ * @var string $assets        where the images live: 'assets', or a file:// path for the PDF
+ * @var string $trackingMode  'screen' or 'pdf'
+ */
 
 $assetDir = ROOT_DIR . '/public/assets';
 $have = fn(string $f): bool => $f !== '' && is_file($assetDir . '/' . basename($f));
 
-$caLogo   = $have('ca_logo.png')      ? $assets . '/ca_logo.png'      : '';
-$gapLogo  = $have('gap_logo.png')     ? $assets . '/gap_logo.png'     : '';
-$goldMark = $have('gap_logo_gold.png') ? $assets . '/gap_logo_gold.png' : '';
+/**
+ * Find a logo by name, whatever kind of image file it happens to be.
+ * ca_logo.jpg, ca_logo.png, ca_logo.svg - all are found, so nobody has to
+ * convert artwork before it can be used.
+ */
+$pick = function (string $base) use ($assetDir, $assets): string {
+    foreach (['png', 'jpg', 'jpeg', 'webp', 'svg', 'gif', 'PNG', 'JPG', 'JPEG'] as $ext) {
+        if (is_file($assetDir . '/' . $base . '.' . $ext)) {
+            return $assets . '/' . $base . '.' . $ext;
+        }
+    }
+    return '';
+};
+
+$caLogo   = $pick('ca_logo');
+$gapLogo  = $pick('gap_logo');
+$goldMark = $pick('gap_logo_gold');
 
 /** The signature and stamp are stored as a setting holding a path under assets/. */
 $sigFile   = (string)($d['company']['signature'] ?? setting('signature_image', ''));
@@ -39,7 +58,7 @@ $sigSrc    = $have($sigFile)   ? $assets . '/' . basename($sigFile)   : '';
 $stampSrc  = $have($stampFile) ? $assets . '/' . basename($stampFile) : '';
 
 $status    = $d['cert']['status'] ?? 'Valid';
-$watermark = in_array($status, ['Voided', 'Replaced', 'Expired', 'Pending approval', 'Rejected'], true)
+$watermark = in_array($status, ['Voided', 'Superseded', 'Expired', 'Pending approval', 'Rejected'], true)
     ? strtoupper($status) : '';
 
 // The sentence reads "on __/__/20__", so the installation date is split three ways.
@@ -54,6 +73,13 @@ $shortDate = function ($iso) {
     return $t ? date('d/m/Y', $t) : '';
 };
 
+// One box, both units, separated by a slash - as the printed certificate reads.
+// imeis is the list on anything issued since two units became possible; imei is
+// the frozen string on everything older, and that still has to print.
+$trkImeis = array_values(array_filter(array_map('trim',
+    (array)($d['device']['imeis'] ?? [])), fn($x) => $x !== ''));
+$trkLine  = $trkImeis ? implode(' / ', $trkImeis) : (string)($d['device']['imei'] ?? '');
+
 $rows = [
     ['Vehicle Reg No.',     $d['vehicle']['reg_no']],
     ['Vehicle Make/Model',  $d['vehicle']['make_model']],
@@ -62,7 +88,7 @@ $rows = [
     ['Colour',              $d['vehicle']['colour']],
     ['Ownership Details',   $d['vehicle']['ownership']],
     ['FINANCIER',           $d['vehicle']['financier'] !== '' ? $d['vehicle']['financier'] : 'N/A'],
-    ['Track IMEI No.',      $d['device']['imei']],
+    [$trkImeis && count($trkImeis) > 1 ? 'Track IMEI Nos.' : 'Track IMEI No.', $trkLine],
     ['Subscription Date',   $shortDate($d['cert']['subscription_date'] ?? '')],
     ['Expiry Date',         $shortDate($d['cert']['expiry_date'] ?? '')],
 ];

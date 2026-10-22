@@ -38,7 +38,9 @@ $params = [];
 if ($search !== '') {
     // Registration is matched on letters and digits only, so KDF745B finds KDF 745B.
     $where[] = "(regexp_replace(upper(t.reg_no), '[^A-Z0-9]', '', 'g') LIKE ?
-                 OR t.client_name ILIKE ? OR t.imei LIKE ? OR CAST(t.number AS text) LIKE ?)";
+                 OR t.client_name ILIKE ? OR CAST(t.number AS text) LIKE ?
+                 OR EXISTS (SELECT 1 FROM tracking_imeis i
+                             WHERE i.cert_id = t.id AND i.imei LIKE ?))";
     $params[] = '%' . plate_key($search) . '%';
     $params[] = '%' . $search . '%';
     $params[] = '%' . $search . '%';
@@ -106,39 +108,52 @@ if ($isAdm) {
                    ORDER BY expiry_date")->fetchAll();
 }
 
-layout_top('Installations');
+layout_top('Tracking Installations');
 ?>
-<h1  class="page-title">Tracker Installation Certificates</h1>
-
-<?php if ((int)$counts['pending_count'] > 0): ?>
-  <p class="hint" style="text-align:left">
-    <?= (int)$counts['pending_count'] ?> certificate<?= $counts['pending_count'] == 1 ? '' : 's' ?>
-    waiting for accounts to confirm payment. They have no serial number and cannot be
-    printed or downloaded until approved.
-  </p>
-<?php endif; ?>
-
-<form method="get" class="searchbar">
-  <input name="q" value="<?= e($search) ?>"
-         placeholder="Registration, customer, IMEI or serial number">
-  <input type="hidden" name="status" value="<?= e($status) ?>">
-  <input type="hidden" name="per" value="<?= e((string)$perPage) ?>">
-  <button type="submit">Search</button>
-  <?php if ($search !== ''): ?>
-    <a class="button secondary" href="<?= e(trk_link(['q' => '', 'page' => 1])) ?>">Clear</a>
+<style>
+    .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+        /* ---- a little wider once there is room ---- */
+    .vfy h1.vfy-title {
+        margin: 0 0 6px;
+        font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+        line-height: 1.25; color: #0D4F72;
+        padding-left: 12px; border-left: 4px solid #8CC63F;
+    }
+    @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+    .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5;}
+</style>
+<div class="vfy">
+  <h1 class="vfy-title">Tracking Installations</h1>
+  <p class="vfy-sub">Search, filter and review the tracker installation certificates.</p>
+  <?php if ((int)$counts['pending_count'] > 0): ?>
+    <p class="vfy-sub" style="text-align:left">
+      <?= (int)$counts['pending_count'] ?> certificate<?= $counts['pending_count'] == 1 ? '' : 's' ?>
+      waiting for accounts to confirm payment. They have no serial number and cannot be
+      printed or downloaded until approved.
+    </p>
   <?php endif; ?>
-  <?php if ($isAdm): ?>
-    <a class="button" href="tracking_new.php">New installation</a>
-  <?php endif; ?>
-</form>
 
+  <form method="get" class="searchbar">
+    <input name="q" value="<?= e($search) ?>"
+          placeholder="Registration, customer, IMEI or serial number">
+    <input type="hidden" name="status" value="<?= e($status) ?>">
+    <input type="hidden" name="per" value="<?= e((string)$perPage) ?>">
+    <button type="submit">Search</button>
+    <?php if ($search !== ''): ?>
+      <a class="button secondary" href="<?= e(trk_link(['q' => '', 'page' => 1])) ?>">Clear</a>
+    <?php endif; ?>
+    <?php if ($isAdm): ?>
+      <a class="button" href="tracking_new.php">New installation</a>
+    <?php endif; ?>
+  </form>
+</div>
 <div class="filters">
   <?php foreach ([
       'all'        => ['All', $counts['all_count']],
       'pending'    => ['Pending', $counts['pending_count']],
       'valid'      => ['Valid', $counts['valid_count']],
       'expired'    => ['Expired', $counts['expired_count']],
-      'superseded' => ['Replaced', $counts['superseded_count']],
+      'superseded' => ['Superseded', $counts['superseded_count']],
       'rejected'   => ['Rejected', $counts['rejected_count']],
       'voided'     => ['Voided', $counts['voided_count']],
   ] as $key => $info): ?>

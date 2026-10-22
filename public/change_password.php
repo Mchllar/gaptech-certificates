@@ -1,4 +1,6 @@
 <?php
+
+
 /**
  * Change your own password.
  *
@@ -66,50 +68,63 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 
 layout_top('Change password', $me ? 'staff' : 'public');
-layout_back($me['role'] === 'accounts' ? 'approvals.php' : 'index.php', 'Back to certificates');
-
+layout_back($me['role'] === 'accounts' ? 'approvals.php' : 'index.php', 'Back to SG. Certificates');
 ?>
-<h1>Change your password</h1>
+<style>
+    .chg-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+        /* ---- a little wider once there is room ---- */
+    .chg h1.chg-title {
+        margin: 0 0 6px;
+        font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+        line-height: 1.25; color: #0D4F72;
+        padding-left: 12px; border-left: 4px solid #8CC63F;
+    }
+    @media (min-width: 520px) { .chg h1.chg-title { font-size: 26px; } }
+    .chg-sub { font-size: 14px; color: #7A8696; line-height: 1.5; text-align: center; }
+      /* This page only: centre the heading and the card. */
+</style>
+<div class="chg">
+  <h1 class="chg-title">Change your password</h1>
 
-<?php if ($done): ?>
-  <p class="flash">Your password has been changed.</p>
-  <p><a class="button" href="<?= $me ? 'index.php' : 'login.php' ?>">
-    <?= $me ? 'Back to certificates' : 'Go to sign in' ?></a></p>
-<?php else: ?>
+  <?php if ($done): ?>
+    <p class="chg-sub">Your password has been changed.</p>
+    <p><a class="button" href="<?= $me ? 'index.php' : 'login.php' ?>">
+      <?= $me ? 'Back to certificates' : 'Go to sign in' ?></a></p>
+  <?php else: ?>
 
-  <?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
+    <?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
 
-  <form method="post" class="narrow">
-    <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+    <form method="post" class="narrow">
+      <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
 
-    <?php if ($me): ?>
-      <p class="hint">You're Signed in as <strong style="color:blue;" ><?= e($me['username']) ?></strong>.</p>
-    <?php else: ?>
-      <label>E-mail <input name="email" type="email" value="<?= e($email) ?>" required autofocus></label>
-    <?php endif; ?>
+      <?php if ($me): ?>
+        <p class="chg-sub">You're Signed in as <strong style="color:  #0D4F72" ><?= e($me['username']) ?></strong>.</p>
+      <?php else: ?>
+        <label>E-mail <input name="email" type="email" value="<?= e($email) ?>" required autofocus></label>
+      <?php endif; ?>
 
-    <label>Current password <input name="current" type="password" required
-      <?= $me ? 'autofocus' : '' ?>></label>
-    <label>New password <input name="password" id="pw" type="password" minlength="8" required></label>
-    <label>Repeat new password <input name="password2" id="pw2" type="password" minlength="8" required></label>
+      <label>Current password <input name="current" type="password" required
+        <?= $me ? 'autofocus' : '' ?>></label>
+      <label>New password <input name="password" id="pw" type="password" minlength="8" required></label>
+      <label>Repeat new password <input name="password2" id="pw2" type="password" minlength="8" required></label>
 
-    <ul class="pw-rules" id="pwRules">
-      <li data-rule="len">At least 8 characters</li>
-      <li data-rule="upper">One capital letter</li>
-      <li data-rule="digit">One number</li>
-      <li data-rule="special">One special character (! ? @ # $ % &amp; * - _ etc.)</li>
-      <li data-rule="match">Both entries match</li>
-    </ul>
+      <ul class="pw-rules" id="pwRules">
+        <li data-rule="len">At least 8 characters</li>
+        <li data-rule="upper">One capital letter</li>
+        <li data-rule="digit">One number</li>
+        <li data-rule="special">One special character (! ? @ # $ % &amp; * - _ etc.)</li>
+        <li data-rule="match">Both entries match</li>
+      </ul>
+      <button type="submit">Change password</button></br>
+      <a href="forgot_password.php">Forgotten it completely?</a>
 
-    <button type="submit">Change password</button>
-  </form>
+    </form>
 
-  <p class="hint">
-    <?php if (!$me): ?><a href="login.php">Back to sign in</a> &middot; <?php endif; ?>
-    <a href="forgot_password.php">Forgotten it completely?</a>
-  </p>
-<?php endif; ?>
-
+    <p class="hint">
+      <?php if (!$me): ?><a href="login.php">Back to sign in</a> &middot; <?php endif; ?>
+    </p>
+  <?php endif; ?>
+    </div>
 <script>
 (function () {
   var pw = document.getElementById('pw'), pw2 = document.getElementById('pw2');

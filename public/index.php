@@ -12,7 +12,7 @@ $user = require_admin();
 
 $search = trim((string)($_GET['q'] ?? ''));
 $status = (string)($_GET['status'] ?? 'all');
-if (!in_array($status, ['all', 'pending', 'valid', 'expired', 'superseded', 'voided', 'rejected'], true)) {
+if (!in_array($status, ['all', 'pending', 'valid', 'expired', 'superseded', 'voided', 'rejected', 'scheduled'], true)) {
     $status = 'all';
 }
 $perPage = (int)($_GET['per'] ?? 10);
@@ -38,7 +38,11 @@ if ($status === 'pending') {
 } elseif ($status === 'rejected') {
     $where[] = "c.approval_status = 'rejected'";
 } elseif ($status === 'valid') {
-    $where[] = "c.approval_status = 'approved' AND c.status = 'issued' AND c.expiry_date >= current_date";
+    $where[] = "c.approval_status = 'approved' AND c.status = 'issued'
+                AND c.issue_date <= current_date AND c.expiry_date >= current_date";
+} elseif ($status === 'scheduled') {
+    $where[] = "c.approval_status = 'approved' AND c.status = 'issued'
+                AND c.issue_date > current_date";
 } elseif ($status === 'expired') {
     $where[] = "c.approval_status = 'approved' AND c.status = 'issued' AND c.expiry_date < current_date";
 } elseif ($status === 'superseded') {
@@ -112,7 +116,10 @@ $counts = q("SELECT
     count(*) FILTER (WHERE approval_status = 'pending') AS pending_count,
     count(*) FILTER (WHERE approval_status = 'rejected') AS rejected_count,
     count(*) FILTER (WHERE approval_status = 'approved' AND status = 'issued'
+                     AND issue_date <= current_date
                      AND expiry_date >= current_date) AS valid_count,
+    count(*) FILTER (WHERE approval_status = 'approved' AND status = 'issued'
+                     AND issue_date > current_date) AS scheduled_count,
     count(*) FILTER (WHERE approval_status = 'approved' AND status = 'issued'
                      AND expiry_date < current_date) AS expired_count,
     count(*) FILTER (WHERE status = 'superseded') AS superseded_count,
@@ -140,12 +147,26 @@ $expiring = q("SELECT c.id, c.number, c.expiry_date, v.reg_no, cl.name AS client
                  AND c.expiry_date BETWEEN current_date AND current_date + 30
                ORDER BY c.expiry_date")->fetchAll();
 
-layout_top('Certificates');
+layout_top('Speed Governor Certificates');
 ?>
-<h1 class="page-title">Speed Govenor Certificates</h1>
+<style>
+  .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+     /* ---- a little wider once there is room ---- */
+  .vfy h1.vfy-title {
+    margin: 0 0 6px;
+    font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+    line-height: 1.25; color: #0D4F72;
+    padding-left: 12px; border-left: 4px solid #8CC63F;
+  }
+  @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+  .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5; text-align: center; }
 
+</style>
+
+<div class="vfy">
+<h1 class="vfy-title">Speed Governor Certificates</h1>
 <?php if ((int)$counts['pending_count'] > 0): ?>
-  <p class="hint" style="text-align:left">
+  <p class="vfy-sub" style="text-align:left">
     <?= (int)$counts['pending_count'] ?> certificate<?= $counts['pending_count'] == 1 ? '' : 's' ?>
     waiting for accounts to confirm payment. They cannot be printed or downloaded until approved.
   </p>
@@ -167,6 +188,7 @@ layout_top('Certificates');
       'all' => ['All', $counts['all_count']],
       'pending' => ['Pending', $counts['pending_count']],
       'valid' => ['Valid', $counts['valid_count']],
+      'scheduled'  => ['Scheduled', $counts['scheduled_count']],
       'expired' => ['Expired', $counts['expired_count']],
       'superseded' => ['Superseded', $counts['superseded_count']],
       'rejected' => ['Rejected', $counts['rejected_count']],
@@ -258,5 +280,6 @@ layout_top('Certificates');
   <?php endforeach; ?>
   <?php if (!$expiring): ?><tr><td colspan="5">Nothing due in the next 30 days.</td></tr><?php endif; ?>
 </table>
+<div>
 <?php require APP_DIR . '/views/renew_modal.php'; ?>
 <?php layout_bottom(); ?>

@@ -131,11 +131,26 @@ function field(string $name, string $label, string $value, array $opts = []): vo
     echo '</span></label>';
 }
 
-layout_top('New certificate');
+layout_top('New SG. Certificate');
 layout_back('index.php', 'Back to SG. Certificates');
 ?>
-<h1  class="page-title">New Speed Govenor Certificate</h1>
-<p class="hint">All fields are required. The governor model, set speed, technician and expiry date are
+<style>
+  .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+     /* ---- a little wider once there is room ---- */
+  .vfy h1.vfy-title {
+    margin: 0 0 6px;
+    font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+    line-height: 1.25; color: #0D4F72;
+    padding-left: 12px; border-left: 4px solid #8CC63F;
+  }
+  @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+  .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5;}
+
+</style>
+
+<div class="vfy">
+<h1  class="vfy-title">New Speed Governor Certificate</h1>
+<p class="vfy-sub">All fields are required. The governor model, set speed, technician and expiry date are
 filled in from Settings. The certificate goes to accounts when you save, and is assigned a unique number once
 they confirm the payment.</p>
 
@@ -184,7 +199,7 @@ they confirm the payment.</p>
 
   <button type="submit">Save Certificate</button>
 </form>
-
+</div>
 <script>
 // Type in capitals: the value itself is stored in capitals, not only shown that way.
 document.querySelectorAll('input.caps').forEach(function (input) {

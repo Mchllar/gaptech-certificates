@@ -93,3 +93,32 @@ Failed opening required 'C:\xampp\htdocs\gaptech-certificates\app/views/renew_mo
 C:\xampp\htdocs\gaptech-certificates\public\index.php:201
 #0 {main}
 
+2026-10-22 09:19:17  [918185]  cli
+Failed opening required 'C:\xampp\htdocs\gaptech-certificates\app/orders.php' (include_path='C:\xampp\php\PEAR')
+C:\xampp\htdocs\gaptech-certificates\tools\seed_demo.php:33
+#0 {main}
+
+2026-10-22 09:22:55  [2EDB6E]  /gaptech-certificates/public/device_queue.php
+SQLSTATE[42P01]: Undefined table: 7 ERROR:  relation "device_checks" does not exist
+LINE 2:               FROM device_checks c
+                           ^
+C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php:92
+#0 C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php(92): PDOStatement->execute(Array)
+#1 C:\xampp\htdocs\gaptech-certificates\app\devices.php(41): q('SELECT c.*, u.n...', Array)
+#2 C:\xampp\htdocs\gaptech-certificates\app\devices.php(62): device_last_check(3)
+#3 C:\xampp\htdocs\gaptech-certificates\app\devices.php(181): device_clearance(3)
+#4 C:\xampp\htdocs\gaptech-certificates\public\device_queue.php(31): devices_due_for_check(30)
+#5 {main}
+
+2026-10-22 09:31:43  [7AB316]  /gaptech-certificates/public/device_queue.php
+SQLSTATE[42P01]: Undefined table: 7 ERROR:  relation "device_checks" does not exist
+LINE 2:               FROM device_checks c
+                           ^
+C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php:92
+#0 C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php(92): PDOStatement->execute(Array)
+#1 C:\xampp\htdocs\gaptech-certificates\app\devices.php(41): q('SELECT c.*, u.n...', Array)
+#2 C:\xampp\htdocs\gaptech-certificates\app\devices.php(62): device_last_check(3)
+#3 C:\xampp\htdocs\gaptech-certificates\app\devices.php(181): device_clearance(3)
+#4 C:\xampp\htdocs\gaptech-certificates\public\device_queue.php(31): devices_due_for_check(30)
+#5 {main}
+

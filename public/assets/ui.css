@@ -407,3 +407,8 @@ main .stat-num { font-size: 29px; }
   main table { font-size: 14px; }
   main table td, main table th { padding: 12px 11px; }
 }
+
+
+main td.status-scheduled { color: #1E6FA8; }
+.status-pill.status-scheduled { background: #E7F1F9; color: #0D4F72; }
+.modal-head h2 .status-scheduled, #note-title .status-scheduled { color: #AFD6F0; }

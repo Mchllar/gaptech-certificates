@@ -41,12 +41,13 @@ body { padding-top: var(--gt-top-h); }
   margin-left: 6px; font-size: 10px; font-weight: 600; letter-spacing: .5px;
   text-transform: uppercase; color: var(--gt-muted, #7A8696);
 }
+.gt-who-username { font-weight: 400; color: #8FA6B8;  font-size: 10px; align-self: flex-start;
+letter-spacing: .7px; padding: 0.2px 7px; border-radius: 999px;}
 
 .gt-top-rule { width: 1px; height: 26px; background: var(--gt-line, #E4EBF2); flex: 0 0 1px; }
 
 .gt-top-title {
-  margin: 0; font-size: 16px; font-weight: 650; color: var(--gt-ink, #27303D);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  margin: 0; font-size: 16px; font-weight: 650; color: var(--gt-ink, #1d5a16);
 }
 
 /* ---- right: when and who ---- */
@@ -71,7 +72,8 @@ body { padding-top: var(--gt-top-h); }
 .gt-who { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; }
 .gt-who-name { font-size: 13.5px; font-weight: 600; color: var(--gt-ink, #27303D);
                white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
-
+.gt-top-mark .gt-m1 { color: var(--gt-green, #8CC63F); }
+.gt-top-mark .gt-m2 { color: var(--gt-navy,  #0D4F72); }
 .gt-role {
   align-self: flex-start;
   font-size: 9.5px; font-weight: 700; letter-spacing: .7px; text-transform: uppercase;

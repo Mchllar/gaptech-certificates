@@ -350,6 +350,11 @@ function certificate_status(array $cert): string
     if ($cert['status'] === 'superseded') {
         return 'Replaced';
     }
+    // Paid for early: approved and numbered, but its cover has not begun. Not
+    // downloadable until it does - the certificate in force today is the old one.
+    if (strtotime($cert['issue_date']) > strtotime(date('Y-m-d'))) {
+        return 'Scheduled';
+    }
     return strtotime($cert['expiry_date']) < strtotime(date('Y-m-d')) ? 'Expired' : 'Valid';
 }
 
@@ -373,6 +378,19 @@ function certificate_label(array $cert): string
         : draft_ref($cert);
 }
 
+/**
+ * Replaces approve_certificate() in app/certificates.php.
+ *
+ * Three things were wrong in the pasted version:
+ *
+ *   1. "try {" was missing after beginTransaction(), so the catch had nothing
+ *      to attach to.
+ *   2. The main UPDATE - the one that writes the number, the snapshot and
+ *      approval_status = 'approved' - had been overwritten by a copy of the
+ *      supersede statement. The function allocated a number and then never
+ *      used it, so nothing was ever actually approved.
+ *   3. The supersede statement appeared twice.
+ */
 
 /**
  * Accounts approves a certificate: the payment is on record, so the certificate
@@ -387,52 +405,65 @@ function approve_certificate(array $cert, array $user, string $ref, string $note
     if (($cert['approval_status'] ?? '') === 'approved') {
         throw new RuntimeException('That certificate has already been approved.');
     }
- 
+
     $pdo = db();
     $pdo->beginTransaction();
     try {
+        // One payment, one certificate.
         $used = q('SELECT id, number FROM certificates
-                   WHERE upper(payment_ref) = upper(?) AND id <> ?', [$ref, $cert['id']])->fetch();
+                   WHERE upper(payment_ref) = upper(?) AND id <> ?',
+                  [$ref, $cert['id']])->fetch();
         if ($used) {
             throw new RuntimeException('That payment reference was already used on certificate '
                 . ($used['number'] ?: 'draft ' . $used['id']) . '.');
         }
- 
+
         $number = next_certificate_number();
- 
+
         // the number is printed on the sheet, so it goes into the snapshot too
         $snapshot = json_decode($cert['snapshot'], true);
         $snapshot['cert']['number'] = (string)$number;
- 
+
         q("UPDATE certificates
               SET number = ?, snapshot = ?, approval_status = 'approved', status = 'issued',
                   payment_ref = ?, payment_note = ?, approved_by = ?, approved_at = now(),
                   rejection_reason = NULL, pdf_path = NULL, pdf_sha256 = NULL
             WHERE id = ?",
             [$number, json_encode($snapshot), $ref, $note, $user['id'], $cert['id']]);
- 
-        // Now that this one is live, work out which of the vehicle's approved
-        // certificates is current - the latest issued - and retire the rest.
+
+        // Work out which of the vehicle's certificates is current TODAY, and
+        // retire the rest.
+        //
+        // Both halves say issue_date <= current_date, and that is the whole of
+        // the early-renewal change:
+        //
+        //   the subquery  - a certificate paid for early must not be taken as the
+        //                   current one merely because its date is the latest
+        //   the outer one - and it must not be retired either; it is waiting for
+        //                   its start date, by which time the old one has expired
+        //                   on its own
         q("UPDATE certificates c
               SET status = CASE WHEN c.id = cur.id THEN 'issued' ELSE 'superseded' END
             FROM (SELECT id FROM certificates
-                   WHERE vehicle_id = ? AND approval_status = 'approved' AND status <> 'voided'
+                   WHERE vehicle_id = ? AND approval_status = 'approved'
+                     AND status <> 'voided' AND issue_date <= current_date
                    ORDER BY issue_date DESC, number DESC LIMIT 1) cur
-            WHERE c.vehicle_id = ? AND c.approval_status = 'approved' AND c.status <> 'voided'",
+            WHERE c.vehicle_id = ? AND c.approval_status = 'approved'
+              AND c.status <> 'voided' AND c.issue_date <= current_date",
             [$cert['vehicle_id'], $cert['vehicle_id']]);
- 
+
         $pdo->commit();
     } catch (Throwable $err) {
         $pdo->rollBack();
         throw $err;
     }
- 
+
     audit('approve_certificate', 'certificate', (int)$cert['id'],
         ['number' => $number, 'payment_ref' => $ref]);
- 
+
     return q('SELECT * FROM certificates WHERE id = ?', [$cert['id']])->fetch();
 }
- 
+
 /**
  * Accounts rejects a certificate: no payment on record. It takes no number and
  * goes back to whoever issued it, with the reason.

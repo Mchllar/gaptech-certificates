@@ -97,128 +97,141 @@ function reg_link(array $overrides = []): string
 $periodNames = ['month' => 'This month', 'last' => 'Last month',
                 'quarter' => 'Last 90 days', 'all' => 'Everything'];
 
-layout_top('Payments');
-layout_back('approvals.php', 'Back to Approvals');
+layout_top('Speed Governor Installation Records');
+layout_back('approvals.php', 'Back to SG. Approvals');
 ?>
-<h1  class="page-title">Payments Register</h1>
-<?php if (!empty($_SESSION['flash_error'])): ?>
-  <p class="error"><?= e($_SESSION['flash_error']) ?></p><?php unset($_SESSION['flash_error']); ?>
-<?php endif; ?>
-<?php if (!empty($_SESSION['flash_ok'])): ?>
-  <p class="hint"><?= e($_SESSION['flash_ok']) ?></p><?php unset($_SESSION['flash_ok']); ?>
-<?php endif; ?>
-
-<p class="hint">Every certificate accounts has been reviewed, with the payment recorded against it.</p>
-
-<div class="stat-row">
-  <div class="stat">
-    <span class="stat-num"><?= (int)$sums['approved'] ?></span>
-    <span class="stat-label">Approved &middot; <?= e(strtolower($periodNames[$period])) ?></span>
-  </div>
-  <div class="stat">
-    <span class="stat-num"><?= (int)$sums['rejected'] ?></span>
-    <span class="stat-label">Rejected &middot; <?= e(strtolower($periodNames[$period])) ?></span>
-  </div>
-  <a class="stat stat-link" href="approvals.php">
-    <span class="stat-num"><?= $waiting ?></span>
-    <span class="stat-label">Pending approvals</span>
-  </a>
-</div>
-
-<form method="get" class="searchbar">
-  <input name="q" value="<?= e($search) ?>"
-         placeholder="Payment reference, registration, customer or certificate number">
-  <input type="hidden" name="decision" value="<?= e($decision) ?>">
-  <input type="hidden" name="period" value="<?= e($period) ?>">
-  <button type="submit">Search</button>
-  <?php if ($search !== ''): ?>
-    <a class="button secondary" href="<?= e(reg_link(['q' => '', 'page' => 1])) ?>">Clear</a>
+<style>
+    .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+        /* ---- a little wider once there is room ---- */
+    .vfy h1.vfy-title {
+        margin: 0 0 6px;
+        font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+        line-height: 1.25; color: #0D4F72;
+        padding-left: 12px; border-left: 4px solid #8CC63F;
+    }
+    @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+    .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5;}
+</style>
+<div class="vfy">
+  <h1  class="vfy-title">Speed Governor Installations</h1>
+  <?php if (!empty($_SESSION['flash_error'])): ?>
+    <p class="error"><?= e($_SESSION['flash_error']) ?></p><?php unset($_SESSION['flash_error']); ?>
   <?php endif; ?>
-</form>
+  <?php if (!empty($_SESSION['flash_ok'])): ?>
+    <p class="hint"><?= e($_SESSION['flash_ok']) ?></p><?php unset($_SESSION['flash_ok']); ?>
+  <?php endif; ?>
 
-<div class="filters">
-  <?php foreach ($periodNames as $key => $label): ?>
-    <a class="chip <?= $period === $key ? 'chip-on' : '' ?>"
-       href="<?= e(reg_link(['period' => $key, 'page' => 1])) ?>"><?= e($label) ?></a>
-  <?php endforeach; ?>
-</div>
+  <p class="vfy-sub">Every certificate accounts has been reviewed, with the payment recorded against it.</p>
 
-<div class="filters">
-  <?php foreach (['approved' => 'Approved', 'rejected' => 'Rejected', 'all' => 'Both'] as $key => $label): ?>
-    <a class="chip <?= $decision === $key ? 'chip-on' : '' ?>"
-       href="<?= e(reg_link(['decision' => $key, 'page' => 1])) ?>"><?= e($label) ?></a>
-  <?php endforeach; ?>
-</div>
-<div class="table-scroll">
-<table class="register">
-  <colgroup>
-    <col class="col-date"><col class="col-cert"><col class="col-reg"><col class="col-cust">
-    <col class="col-ref"><col class="col-status"><col class="col-by"><col class="col-act">
-  </colgroup>
-  <tr><th>Date</th><th>Cert no.</th><th>Reg no.</th><th>Customer</th>
-      <th>Payment reference</th><th>Status</th><th>Approved by</th><th></th></tr>
-  <?php foreach ($rows as $row): ?>
-  <tr>
-    <td class="nowrap"><?= e(fmt_date(substr((string)$row['approved_at'], 0, 10))) ?></td>
-    <td><?= e(certificate_label($row)) ?></td>
-    <td class="nowrap"><?= e($row['reg_no']) ?></td>
-    <td class="ellipsis" title="<?= e($row['client_name']) ?>"><?= e($row['client_name']) ?></td>
-    <td class="wrap">
-      <?php if (($row['payment_ref'] ?? '') !== ''): ?><code><?= e($row['payment_ref']) ?></code><?php else: ?><span class="dash">&mdash;</span><?php endif; ?>      <?php if ($row['payment_edited_at']): ?><span class="edited-tag" title="Corrected after approval">edited</span><?php endif; ?>
-      <?php if (!empty($row['payment_note'])): ?>
-         <button type="button" class="note-open" data-id="<?= (int)$row['id'] ?>">View</button>
-      <?php endif; ?>
-    </td>
-    <td class="<?= $row['approval_status'] === 'approved' ? 'status-valid' : 'status-voided' ?>">
-      <?= $row['approval_status'] === 'approved' ? 'Approved' : 'Rejected' ?></td>
-    <td class="ellipsis" title="<?= e((string)$row['decided_by']) ?>"><?= e((string)$row['decided_by']) ?></td>
-    <td><a href="certificate_view.php?id=<?= (int)$row['id'] ?>">View Cert</a></td>
-  </tr>
-  <?php endforeach; ?>
-  <?php if (!$rows): ?><tr><td colspan="8">Nothing matches those filters.</td></tr><?php endif; ?>
-</table>
+  <div class="stat-row">
+    <div class="stat">
+      <span class="stat-num"><?= (int)$sums['approved'] ?></span>
+      <span class="stat-label">Approved &middot; <?= e(strtolower($periodNames[$period])) ?></span>
+    </div>
+    <div class="stat">
+      <span class="stat-num"><?= (int)$sums['rejected'] ?></span>
+      <span class="stat-label">Rejected &middot; <?= e(strtolower($periodNames[$period])) ?></span>
+    </div>
+    <a class="stat stat-link" href="approvals.php">
+      <span class="stat-num"><?= $waiting ?></span>
+      <span class="stat-label">Pending approvals</span>
+    </a>
   </div>
-<div class="pager">
-  <form method="get" class="per-page">
-    <input type="hidden" name="q" value="<?= e($search) ?>">
+
+  <form method="get" class="searchbar">
+    <input name="q" value="<?= e($search) ?>"
+          placeholder="Payment reference, registration, customer or certificate number">
     <input type="hidden" name="decision" value="<?= e($decision) ?>">
     <input type="hidden" name="period" value="<?= e($period) ?>">
-    <label>Rows per page
-      <select name="per" onchange="this.form.submit()">
-        <?php foreach ([10, 25, 50, 100] as $n): ?>
-          <option value="<?= $n ?>" <?= $perPage === $n ? 'selected' : '' ?>><?= $n ?></option>
-        <?php endforeach; ?>
-      </select>
-    </label>
+    <button type="submit">Search</button>
+    <?php if ($search !== ''): ?>
+      <a class="button secondary" href="<?= e(reg_link(['q' => '', 'page' => 1])) ?>">Clear</a>
+    <?php endif; ?>
   </form>
 
-  <span class="pager-info">
-    <?= $total ? ($offset + 1) . '&ndash;' . min($offset + $perPage, $total) : 0 ?> of <?= $total ?>
-  </span>
+  <div class="filters">
+    <?php foreach ($periodNames as $key => $label): ?>
+      <a class="chip <?= $period === $key ? 'chip-on' : '' ?>"
+        href="<?= e(reg_link(['period' => $key, 'page' => 1])) ?>"><?= e($label) ?></a>
+    <?php endforeach; ?>
+  </div>
 
-  <span class="pager-buttons">
-    <?php if ($page > 1): ?>
-      <a class="button secondary" href="<?= e(reg_link(['page' => 1])) ?>">&laquo; First</a>
-      <a class="button secondary" href="<?= e(reg_link(['page' => $page - 1])) ?>">Previous</a>
-    <?php endif; ?>
-    <span class="pager-page">Page <?= $page ?> of <?= $pages ?></span>
-    <?php if ($page < $pages): ?>
-      <a class="button secondary" href="<?= e(reg_link(['page' => $page + 1])) ?>">Next</a>
-      <a class="button secondary" href="<?= e(reg_link(['page' => $pages])) ?>">Last &raquo;</a>
-    <?php endif; ?>
-  </span>
-</div>
-
-<div id="note-modal" class="modal" hidden>
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="note-title">
-    <div class="modal-head">
-      <h2 id="note-title">Payment</h2>
-      <button type="button" class="modal-close" aria-label="Close">&times;</button>
+  <div class="filters">
+    <?php foreach (['approved' => 'Approved', 'rejected' => 'Rejected', 'all' => 'Both'] as $key => $label): ?>
+      <a class="chip <?= $decision === $key ? 'chip-on' : '' ?>"
+        href="<?= e(reg_link(['decision' => $key, 'page' => 1])) ?>"><?= e($label) ?></a>
+    <?php endforeach; ?>
+  </div>
+  <div class="table-scroll">
+  <table class="register">
+    <colgroup>
+      <col class="col-date"><col class="col-cert"><col class="col-reg"><col class="col-cust">
+      <col class="col-ref"><col class="col-status"><col class="col-by"><col class="col-act">
+    </colgroup>
+    <tr><th>Date</th><th>Cert no.</th><th>Reg no.</th><th>Customer</th>
+        <th>Payment reference</th><th>Status</th><th>Approved by</th><th></th></tr>
+    <?php foreach ($rows as $row): ?>
+    <tr>
+      <td class="nowrap"><?= e(fmt_date(substr((string)$row['approved_at'], 0, 10))) ?></td>
+      <td><?= e(certificate_label($row)) ?></td>
+      <td class="nowrap"><?= e($row['reg_no']) ?></td>
+      <td class="ellipsis" title="<?= e($row['client_name']) ?>"><?= e($row['client_name']) ?></td>
+      <td class="wrap">
+        <?php if (($row['payment_ref'] ?? '') !== ''): ?><code><?= e($row['payment_ref']) ?></code><?php else: ?><span class="dash">&mdash;</span><?php endif; ?>      <?php if ($row['payment_edited_at']): ?><span class="edited-tag" title="Corrected after approval">edited</span><?php endif; ?>
+        <?php if (!empty($row['payment_note'])): ?>
+          <button type="button" class="note-open" data-id="<?= (int)$row['id'] ?>">View</button>
+        <?php endif; ?>
+      </td>
+      <td class="<?= $row['approval_status'] === 'approved' ? 'status-valid' : 'status-voided' ?>">
+        <?= $row['approval_status'] === 'approved' ? 'Approved' : 'Rejected' ?></td>
+      <td class="ellipsis" title="<?= e((string)$row['decided_by']) ?>"><?= e((string)$row['decided_by']) ?></td>
+      <td><a href="certificate_view.php?id=<?= (int)$row['id'] ?>">View Cert</a></td>
+    </tr>
+    <?php endforeach; ?>
+    <?php if (!$rows): ?><tr><td colspan="8">Nothing matches those filters.</td></tr><?php endif; ?>
+  </table>
     </div>
-    <div class="modal-body" id="note-body"></div>
+  <div class="pager">
+    <form method="get" class="per-page">
+      <input type="hidden" name="q" value="<?= e($search) ?>">
+      <input type="hidden" name="decision" value="<?= e($decision) ?>">
+      <input type="hidden" name="period" value="<?= e($period) ?>">
+      <label>Rows per page
+        <select name="per" onchange="this.form.submit()">
+          <?php foreach ([10, 25, 50, 100] as $n): ?>
+            <option value="<?= $n ?>" <?= $perPage === $n ? 'selected' : '' ?>><?= $n ?></option>
+          <?php endforeach; ?>
+        </select>
+      </label>
+    </form>
+
+    <span class="pager-info">
+      <?= $total ? ($offset + 1) . '&ndash;' . min($offset + $perPage, $total) : 0 ?> of <?= $total ?>
+    </span>
+
+    <span class="pager-buttons">
+      <?php if ($page > 1): ?>
+        <a class="button secondary" href="<?= e(reg_link(['page' => 1])) ?>">&laquo; First</a>
+        <a class="button secondary" href="<?= e(reg_link(['page' => $page - 1])) ?>">Previous</a>
+      <?php endif; ?>
+      <span class="pager-page">Page <?= $page ?> of <?= $pages ?></span>
+      <?php if ($page < $pages): ?>
+        <a class="button secondary" href="<?= e(reg_link(['page' => $page + 1])) ?>">Next</a>
+        <a class="button secondary" href="<?= e(reg_link(['page' => $pages])) ?>">Last &raquo;</a>
+      <?php endif; ?>
+    </span>
+  </div>
+
+  <div id="note-modal" class="modal" hidden>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="note-title">
+      <div class="modal-head">
+        <h2 id="note-title">Payment</h2>
+        <button type="button" class="modal-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body" id="note-body"></div>
+    </div>
   </div>
 </div>
-
 <script>
 (function () {
   var modal = document.getElementById('note-modal');

@@ -28,8 +28,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             if ($action === 'approve') {
                 $done = approve_certificate($target, $user,
-                    (string)($_POST['payment_ref'] ?? ''), trim((string)($_POST['payment_note'] ?? '')));
-                flash('Approved. Certificate ' . $done['number'] . ' is now available to print and download.');
+                    (string)($_POST['payment_ref'] ?? ''),
+                    trim((string)($_POST['payment_note'] ?? '')),
+                    trim((string)($_POST['lpo_no'] ?? '')));
+                flash('Certificate ' . $done['number'] . ' issued'
+                    . (trim((string)$done['payment_ref']) === '' && trim((string)$done['lpo_no']) !== ''
+                        ? ' against LPO ' . $done['lpo_no'] : '')
+                    . '. The client can download it now.');
                 redirect('approvals.php');
             } elseif ($action === 'reject') {
                 reject_certificate($target, $user, (string)($_POST['reason'] ?? ''));
@@ -53,13 +58,20 @@ $pending = q("SELECT c.*, v.reg_no, cl.name AS client_name, u.name AS issued_by_
               WHERE c.approval_status = 'pending'
               ORDER BY c.issued_at")->fetchAll();
 
-layout_top('Approvals');
-layout_back('payments.php', 'Back to SG. Records');
+$recent = q("SELECT c.*, v.reg_no, cl.name AS client_name, u.name AS approved_by_name
+             FROM certificates c
+             JOIN vehicles v ON v.id = c.vehicle_id
+             JOIN clients cl ON cl.id = c.client_id
+             LEFT JOIN users u ON u.id = c.approved_by
+             WHERE c.approval_status IN ('approved', 'rejected') AND c.approved_at IS NOT NULL
+             ORDER BY c.approved_at DESC LIMIT 15")->fetchAll();
 
+layout_top('Approvals');
 ?>
-<h1>SG. Certificates Awaiting Approval</h1>
-<p class="hint">A certificate can only be printed or downloaded once the payment is on record.
-   Paste the payment message, check the reference, then approve.</p>
+<h1>Certificates awaiting approval <span class="chip-count"><?= count($pending) ?></span></h1>
+<p class="hint">An administrator raises a renewal; accounts releases it. A certificate
+   cannot be printed or downloaded until they do. Release it on a payment, or on an
+   LPO when the client is paying later.</p>
 
 <?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
 
@@ -91,39 +103,56 @@ layout_back('payments.php', 'Back to SG. Records');
       <input type="hidden" name="id" value="<?= (int)$cert['id'] ?>">
 
       <fieldset>
-        <legend>Payment</legend>
-        <?php if (trim((string)($cert['payment_ref'] ?? '')) !== ''): ?>
-          <!-- <p class="hint" style="text-align:left; margin:0 0 10px; color:#8A5A00">
-            The administrator who issued this recorded a payment. Check it against the
-            statement before approving &mdash; it has not been verified by accounts.</p> -->
+        <legend>Release this certificate</legend>
+
+        <?php if (trim((string)($cert['payment_note'] ?? '')) !== ''
+               || trim((string)($cert['lpo_no'] ?? '')) !== ''): ?>
+          <p class="hint" style="text-align:left; margin:0 0 12px; color:#8A5A00">
+            The administrator recorded this when they raised it. Check it before
+            releasing &mdash; nobody in accounts has looked at it yet.</p>
         <?php endif; ?>
+
         <label class="field" style="width:100%">Payment message
           <span class="field-row">
             <textarea name="payment_note" id="note" rows="3"
-              placeholder="Paste the full M-Pesa or bank message here"
+              placeholder="Paste the M-Pesa or bank message, if there is one"
               style="width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:6px;
                      font-family:inherit; font-size:14px; resize:vertical"><?= e($_POST['payment_note'] ?? $cert['payment_note'] ?? '') ?></textarea>
           </span>
         </label>
-        <label class="field">Reference code <span class="req">*</span>
+
+        <label class="field">Payment reference
           <span class="field-row">
-            <input name="payment_ref" id="ref" required maxlength="40"
+            <input name="payment_ref" id="ref" maxlength="40"
                    value="<?= e($_POST['payment_ref'] ?? $cert['payment_ref'] ?? '') ?>"
+                   placeholder="M-Pesa code or receipt number"
                    style="text-transform:uppercase">
           </span>
         </label>
-        <p class="hint" style="text-align:left; margin:0">The reference is checked against every other
-           certificate, so one payment cannot approve two.</p>
+
+        <label class="field">LPO number
+          <span class="field-row">
+            <input name="lpo_no" id="lpo" maxlength="60"
+                   value="<?= e($_POST['lpo_no'] ?? $cert['lpo_no'] ?? '') ?>"
+                   placeholder="If they are paying later"
+                   style="text-transform:uppercase">
+          </span>
+        </label>
+
+        <p class="hint" style="text-align:left; margin:0">All three are optional.
+           A payment reference is checked against every other certificate, so one
+           payment cannot release two. An LPO is not &mdash; one LPO routinely covers a
+           whole fleet.</p>
       </fieldset>
 
-      <button type="submit" name="action" value="approve">Approve and issue the number</button>
+      <button type="submit" name="action" value="approve">Release the certificate</button>
     </form>
 
     <form method="post" class="reject-form"
           onsubmit="return confirm('Reject this certificate and send it back?');">
       <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
       <input type="hidden" name="id" value="<?= (int)$cert['id'] ?>">
-      <label>Or reject it <input name="reason" placeholder="Reason, e.g. no payment received"></label>
+      <label>Or send it back <input name="reason" placeholder="Reason, e.g. no payment received"></label>
       <button type="submit" name="action" value="reject" class="danger">Reject</button>
     </form>
   </div>
@@ -145,6 +174,24 @@ layout_back('payments.php', 'Back to SG. Records');
   <?php endforeach; ?>
   <?php if (!$pending): ?><tr><td colspan="7">Nothing waiting. Everything issued has been dealt with.</td></tr><?php endif; ?>
 </table>
+
+<!-- <h2>Recently decided</h2>
+<table>
+  <tr><th>No.</th><th>Vehicle</th><th>Customer</th><th>Decision</th><th>Reference</th><th>When</th><th>By</th></tr>
+  <?php foreach ($recent as $row): ?>
+  <tr>
+    <td><?= e(certificate_label($row)) ?></td>
+    <td><?= e($row['reg_no']) ?></td>
+    <td><?= e($row['client_name']) ?></td>
+    <td class="<?= $row['approval_status'] === 'approved' ? 'status-valid' : 'status-voided' ?>">
+      <?= $row['approval_status'] === 'approved' ? 'Approved' : 'Rejected' ?></td>
+    <td><?= e((string)$row['payment_ref']) ?></td>
+    <td><?= e(fmt_date(substr((string)$row['approved_at'], 0, 10))) ?></td>
+    <td><?= e((string)$row['approved_by_name']) ?></td>
+  </tr>
+  <?php endforeach; ?>
+  <?php if (!$recent): ?><tr><td colspan="7">Nothing decided yet.</td></tr><?php endif; ?>
+</table> -->
 
 <script>
 // Pull the reference out of a pasted payment message, as a suggestion only.

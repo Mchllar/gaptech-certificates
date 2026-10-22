@@ -9,10 +9,6 @@ global $d, $assets, $zoom, $qr, $certno_img, $logo, $logo_gold, $kebs, $sticker_
 require_once __DIR__ . '/sheet_helpers.php';
 ?>
 
-require_once __DIR__ . '/sheet_helpers.php'; ?>
-
-global $d, $assets, $zoom, $qr, $certno_img, $logo, $logo_gold, $kebs, $sticker_bg, $microtext;
-
 <!DOCTYPE html>
 <html>
 <head>
@@ -50,23 +46,14 @@ global $d, $assets, $zoom, $qr, $certno_img, $logo, $logo_gold, $kebs, $sticker_
            font-family: "Carlito", sans-serif; font-style: italic; font-size: 17px; background: rgba(255,255,255,0.55); }
   .img { position: absolute; }
   .emb { text-shadow: 1px 1px 0 rgba(255,255,255,0.7), -1px -1px 0 rgba(0,0,0,0.18); }
-  .rot { -webkit-transform: rotate(-90deg); -webkit-transform-origin: left top; }
-  .dup { -webkit-transform: rotate(-56deg); -webkit-transform-origin: left top; color: #DADADA; letter-spacing: 5px; }
+   .rot { -webkit-transform: rotate(-90deg); -webkit-transform-origin: left top;
+         transform: rotate(-90deg); transform-origin: left top; }
+  .dup { -webkit-transform: rotate(-56deg); -webkit-transform-origin: left top;
+         transform: rotate(-56deg); transform-origin: left top;
+         color: #DADADA; letter-spacing: 5px; }
 </style>
 </head>
 <body>
-
-
-
-
-
-
-
-
-
-
-
-
 <div class="sheet">
 
   <!-- security microtext bands (printed background) -->

@@ -60,13 +60,26 @@ $d = json_decode($cert['snapshot'], true);
 $status = certificate_status($cert);
 $pdfEnabled = !empty($config['wkhtmltopdf']);
 
-layout_top('Certificate ' . $cert['number']);
+layout_top('SG. Certificate ' . $cert['number']);
 
 layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
-            $user['role'] === 'accounts' ? 'Back to payments' : 'Back to SG. Certificates');
+            $user['role'] === 'accounts' ? 'Back to Payments' : 'Back to SG. Certificates');
 
 ?>
-<h1>SG. Certificate - <?= e($cert['number']) ?> <span class="status-<?= strtolower($status) ?>"><?= e($status) ?></span></h1>
+<style>
+    .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+        /* ---- a little wider once there is room ---- */
+    .vfy h1.vfy-title {
+        margin: 0 0 6px;
+        font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+        line-height: 1.25; color: #0D4F72;
+        padding-left: 12px; border-left: 4px solid #8CC63F;
+    }
+    @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+    .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5;}
+</style>
+<div class="vfy">
+<h1 class="vfy-title">SG. Certificate - <?= e($cert['number']) ?> <span class="status-<?= strtolower($status) ?>"><?= e($status) ?></span></h1>
 
 <?php if (!empty($_SESSION['flash_error'])): ?>
   <p class="error"><?= e($_SESSION['flash_error']) ?></p><?php unset($_SESSION['flash_error']); ?>
@@ -137,7 +150,7 @@ layout_back($user['role'] === 'accounts' ? 'payments.php' : 'index.php',
         It has no certificate number and cannot be previewed, printed </br>or downloaded until approved.</td></tr>
   <?php endif; ?>
 </table>
-
+  </div>
 <?php if ($cert['status'] === 'voided'): ?>
   <?php if (trim((string)$cert['void_reason']) !== ''): ?>
     <p class="error">Reason: <?= e($cert['void_reason']) ?></p>

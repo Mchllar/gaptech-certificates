@@ -29,7 +29,7 @@ $html = render_sheet($cert, 'screen');
 // of it (the sticker especially) can be cropped out and passed off as live.
 $state = certificate_status($cert);
 if ($state !== 'Valid') {
-    $labels = ['Expired' => 'EXPIRED', 'Superseded' => 'REPLACED', 'Voided' => 'CANCELLED'];
+    $labels = ['Expired' => 'EXPIRED', 'Superseded' => 'REPLACED', 'Voided' => 'CANCELLED', 'Scheduled' => 'NOT YET VALID'];
     $label = $labels[$state] ?? 'NOT VALID';
 
     $tiles = '';

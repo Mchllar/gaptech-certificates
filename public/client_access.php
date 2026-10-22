@@ -70,11 +70,25 @@ function login_link(array $overrides = []): string
 // Only reopen when a save came back with something to fix.
 $openCreds = !empty($_GET['open']);
 
-layout_top('Client portal access');
-layout_back('index.php', 'Back to certificates');
+layout_top('Client Portal Access');
+layout_back('index.php', 'Back to SG. Certificates');
 ?>
-<h1 class="page-title">SG. Client's Portal Access</h1>
-<p class="hint">Assign or change the username and password clients use to download their own SG. certificates.</p>
+<style>
+  .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+     /* ---- a little wider once there is room ---- */
+  .vfy h1.vfy-title {
+    margin: 0 0 6px;
+    font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+    line-height: 1.25; color: #0D4F72;
+    padding-left: 12px; border-left: 4px solid #8CC63F;
+  }
+  @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+  .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5;}
+
+</style>
+<div class="vfy">
+<h1 class="vfy-title">SG. Client's Portal Access</h1>
+<p class="vfy-sub">Assign or change the username and password clients use to download their own SG. certificates.</p>
 
 <!-- <h2 id="logins">Clients with credentials</h2> -->
 
@@ -135,11 +149,10 @@ layout_back('index.php', 'Back to certificates');
 <div id="creds-modal" class="modal" <?= $openCreds ? '' : 'hidden' ?>>
   <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="creds-title">
     <div class="modal-head">
-      <h2 id="creds-title" style="color:white;">Assign Credentials</h2>
+      <h3 id="creds-title" style="color: #ffffff; padding-top:15px;">Assign Credentials</h3>
       <button type="button" class="modal-close" aria-label="Close">&times;</button>
     </div>
-
-    <div class="modal-body">
+    <div class="modal-body"; style="padding-top:0.5%;">
       <form method="post" class="pay-edit">
         <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
 
@@ -167,8 +180,7 @@ layout_back('index.php', 'Back to certificates');
           <input name="password" type="text" required minlength="8" value="<?= e($suggestedPass) ?>">
         </label>
 
-        <p class="warn-note">Setting a password again replaces the old one.
-          Give it to the client by phone or in person, never by e-mail.</p>
+        <p style="color:red"; class="vfy-sub">Setting a password again replaces the old one. Give it to the client by phone or in person,</p>
 
         <div class="pay-edit-actions">
           <button type="submit">Save credentials</button>
@@ -177,7 +189,7 @@ layout_back('index.php', 'Back to certificates');
     </div>
   </div>
 </div>
-
+</div>
 <script>
 (
   

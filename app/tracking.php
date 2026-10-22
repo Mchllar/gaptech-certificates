@@ -71,7 +71,7 @@ function tracking_status(array $cert): string
         return 'Voided';
     }
     if ($cert['status'] === 'superseded') {
-        return 'Replaced';
+        return 'Superseded';
     }
     return strtotime($cert['expiry_date']) < strtotime(date('Y-m-d')) ? 'Expired' : 'Valid';
 }
@@ -141,12 +141,101 @@ function tracking_company(): array
 }
 
 /**
+ * The IMEIs on a certificate, in the order they appear on the form.
+ *
+ * tracking_imeis is the truth. tracking_certificates.imei carries the printed
+ * string alongside it, rewritten from these rows on every save, so the list page
+ * and the search box still read one field.
+ */
+function tracking_imeis(int $certId): array
+{
+    return q('SELECT imei FROM tracking_imeis WHERE cert_id = ? ORDER BY position, id',
+             [$certId])->fetchAll(PDO::FETCH_COLUMN);
+}
+
+/** What goes in the one box on the certificate: "865... / 866...". */
+function tracking_imei_line(array $imeis): string
+{
+    return implode(' / ', array_values(array_filter(
+        array_map('trim', $imeis), fn($x) => $x !== '')));
+}
+
+/** Tidy a set of IMEIs from a form: trimmed, blanks dropped, no duplicates. */
+function tracking_imei_clean(array $imeis): array
+{
+    $out = [];
+    foreach ($imeis as $one) {
+        $one = trim((string)$one);
+        if ($one !== '' && !in_array($one, $out, true)) {
+            $out[] = $one;          // the same unit twice is a typo, not two units
+        }
+    }
+    return $out;
+}
+
+/**
+ * Replace a certificate's IMEIs.
+ *
+ * Wholesale rather than piecemeal: the form sends the complete set every time,
+ * and delete-then-insert is the only version of this that cannot leave a unit
+ * behind when somebody clears the second box.
+ */
+function set_tracking_imeis(int $certId, array $imeis): string
+{
+    $clean = tracking_imei_clean($imeis);
+
+    q('DELETE FROM tracking_imeis WHERE cert_id = ?', [$certId]);
+
+    foreach ($clean as $i => $one) {
+        q('INSERT INTO tracking_imeis (cert_id, imei, position) VALUES (?, ?, ?)',
+          [$certId, $one, $i + 1]);
+    }
+
+    $line = tracking_imei_line($clean);
+    q('UPDATE tracking_certificates SET imei = ? WHERE id = ?', [$line, $certId]);
+
+    return $line;
+}
+
+/**
+ * Is this unit already on another VEHICLE'S live certificate?
+ *
+ * A warning, never a block. The same IMEI legitimately reappears on every
+ * renewal of the same vehicle - what this catches is a mistyped digit, or a unit
+ * recorded as fitted to two vehicles at once.
+ */
+function tracking_imei_clash(string $imei, string $regNo, ?int $ignoreCertId = null): array
+{
+    $imei = trim($imei);
+    if ($imei === '') {
+        return [];
+    }
+
+    return q("SELECT t.number, t.reg_no
+              FROM tracking_imeis i
+              JOIN tracking_certificates t ON t.id = i.cert_id
+              WHERE i.imei = ?
+                AND t.approval_status = 'approved' AND t.status = 'issued'
+                AND regexp_replace(upper(t.reg_no), '[^A-Z0-9]', '', 'g')
+                    <> regexp_replace(upper(?), '[^A-Z0-9]', '', 'g')
+                AND (?::int IS NULL OR t.id <> ?::int)
+              ORDER BY t.number DESC",
+             [$imei, $regNo, $ignoreCertId, $ignoreCertId])->fetchAll();
+}
+
+/**
  * Create a tracking certificate. It is PENDING: no number, not printable, until
  * accounts records the payment.
  */
 function create_tracking_cert(array $in, array $user, ?int $renewedFrom = null): array
 {
     $token = bin2hex(random_bytes(8));
+
+    // One box or two on the form; the certificate prints them in one box. Accepts
+    // either 'imeis' (a list) or the old single 'imei', so nothing that still
+    // passes one field breaks.
+    $trkImeis = tracking_imei_clean((array)($in['imeis'] ?? [$in['imei'] ?? '']));
+    $trkLine  = tracking_imei_line($trkImeis);
 
     // Everything that will be printed, frozen now, so a reprint years later is identical.
     $snapshot = [
@@ -164,7 +253,11 @@ function create_tracking_cert(array $in, array $user, ?int $renewedFrom = null):
             'financier'  => $in['financier'],
         ],
         'device' => [
-            'imei' => $in['imei'],
+            // imeis is the list; imei is the string that gets printed. Both are
+            // frozen: the sheet reads whichever it finds, and every certificate
+            // issued before two units were possible only has the second.
+            'imeis' => $trkImeis,
+            'imei'  => $trkLine,
         ],
         'cert' => [
             'number'                => '',            // filled in when accounts approves
@@ -186,10 +279,12 @@ function create_tracking_cert(array $in, array $user, ?int $renewedFrom = null):
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending') RETURNING id", [
         $in['client_name'], $in['client_phone'], $in['reg_no'], $in['make_model'],
         $in['chassis_no'], $in['engine_no'], $in['colour'], $in['ownership'],
-        $in['financier'], $in['imei'], $in['installed_on'], $in['subscription_date'],
+        $in['financier'], $trkLine, $in['installed_on'], $in['subscription_date'],
         $in['expiry_date'], $in['signed_by'], $token, json_encode($snapshot), $user['id'],
         $renewedFrom,
     ])->fetchColumn();
+
+    set_tracking_imeis($id, $trkImeis);
 
     // Nothing is superseded here. The vehicle's current certificate stays live until
     // accounts approves this one, so a renewing client is never left without one.
@@ -337,7 +432,12 @@ function renew_tracking_cert(array $old, array $user, string $note, int $months 
         'colour'            => $s['vehicle']['colour']     ?? $old['colour'],
         'ownership'         => $s['vehicle']['ownership']   ?? $old['ownership'],
         'financier'         => $s['vehicle']['financier']   ?? $old['financier'],
-        'imei'              => $s['device']['imei']         ?? $old['imei'],
+        // Both units carry forward. The live rows are the truth; the snapshot is
+        // the fallback for a certificate issued before tracking_imeis existed,
+        // and $old['imei'] the fallback for one whose snapshot predates even that.
+        'imeis'             => tracking_imeis((int)$old['id'])
+                                 ?: ($s['device']['imeis']
+                                     ?? array_filter([$s['device']['imei'] ?? $old['imei']])),
         'installed_on'      => $old['installed_on'],          // historic, never moves
         // The signatory is whoever Settings names today, not whoever signed the
         // certificate being renewed - this is a new certificate, freshly signed.

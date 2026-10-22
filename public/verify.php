@@ -1,4 +1,8 @@
 <?php
+// Where "Back" should go depends on who is looking. A verification page can be
+// opened by an administrator, by accounts, by a client, or by nobody signed in
+// at all - and welcome.php is administrators only.
+
 /**
  * Public verification page. This is what the QR code on the certificate opens, and what
  * an inspector or client uses to check a certificate by hand.
@@ -13,6 +17,15 @@
 require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/certificates.php';
 require APP_DIR . '/views/layout.php';
+
+$vfyBack = '';
+if (function_exists('current_user') && ($vfyWho = current_user())) {
+    $vfyBack = in_array(strtolower((string)($vfyWho['role'] ?? '')), ['administrator', 'admin'], true)
+        ? 'welcome.php'
+        : 'payments.php';
+} elseif (function_exists('current_client') && current_client()) {
+    $vfyBack = 'client_portal.php';
+}
 
 /** No more than $limit lookups an hour from one address, so the series cannot be read out. */
 function verify_throttle(int $limit = 40): bool
@@ -151,6 +164,8 @@ if ($blocked) {
             $detail = 'Accounts rejected this certificate: '
                     . ((string)$cert['rejection_reason'] ?: 'no reason recorded') . '.';
             break;
+        case 'Scheduled':
+          break;
         default:
             $tone = 'bad';
             $headline = 'Voided';
@@ -158,7 +173,7 @@ if ($blocked) {
     }
 }
 
-layout_top('Verify a certificate', 'public');
+layout_top('Verify a SG. Certificate', 'public');
 ?>
 <style>
   /* -------- verification page, phone first -------------------------------- */
@@ -242,7 +257,7 @@ layout_top('Verify a certificate', 'public');
 
 <?php if (!$searched): ?>
 
-  <h1 class="vfy-title" >Verify a speed governor certificate</h1>
+  <h1 class="vfy-title" >Verify a Speed Governor Certificate</h1>
   <p class="vfy-sub">Scan the QR code on the certificate, or enter <strong>either</strong> of the
     details printed on it.</p>
 
@@ -319,7 +334,8 @@ layout_top('Verify a certificate', 'public');
   <?php endif; ?>
 
 <?php endif; ?>
-
-  <a class="vfy-back" href="welcome.php">&larr; Back</a>
+<?php if ($vfyBack !== ''): ?>
+  <a class="vfy-back" href="<?= e($vfyBack) ?>">&larr; Back</a>
+<?php endif; ?>
 </div>
 <?php layout_bottom(); ?>

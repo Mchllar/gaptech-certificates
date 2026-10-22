@@ -19,7 +19,7 @@ $today = date('Y-m-d');
 $form = [
     'client_name' => '', 'client_phone' => '',
     'reg_no' => '', 'make_model' => '', 'chassis_no' => '', 'engine_no' => '',
-    'colour' => '', 'ownership' => '', 'financier' => '', 'imei' => '',
+    'colour' => '', 'ownership' => '', 'financier' => '', 'imei' => '', 'imei_2' => '',
     'installed_on' => $today,
     'subscription_date' => $today,
     'term_months' => '12',
@@ -41,10 +41,16 @@ if (!empty($_GET['reg']) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
                 ORDER BY issued_at DESC LIMIT 1", [plate_key((string)$_GET['reg'])])->fetch();
     if ($last) {
         foreach (['client_name', 'client_phone', 'reg_no', 'make_model', 'chassis_no',
-                  'engine_no', 'colour', 'ownership', 'financier', 'imei',
+                  'engine_no', 'colour', 'ownership', 'financier',
                   'installed_on'] as $key) {
             $form[$key] = (string)$last[$key];
         }
+        // One box each. tracking_certificates.imei holds the PRINTED string, which
+        // for two units reads "865... / 866...", so it must not be poured into a
+        // single field - the rows are what the boxes come from.
+        $prev = tracking_imeis((int)$last['id']);
+        $form['imei']   = (string)($prev[0] ?? (string)$last['imei']);
+        $form['imei_2'] = (string)($prev[1] ?? '');
     } else {
         $form['reg_no'] = mb_strtoupper(trim((string)$_GET['reg']), 'UTF-8');
     }
@@ -92,8 +98,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($form['client_phone'] !== '' && !preg_match('/^[0-9+ ]+$/', $form['client_phone'])) {
         $errors[] = 'Contact may contain only digits, spaces and +.';
     }
+    // The first box is a tracker IMEI: 14 to 17 digits, which covers every unit
+    // GAPTECH fits as standard.
     if ($form['imei'] !== '' && !preg_match('/^[0-9]{14,17}$/', $form['imei'])) {
-        $errors[] = 'An IMEI is 15 digits. Check it has been copied in full.';
+        $errors[] = 'An IMEI is 14 to 17 digits. Check it has been copied in full.';
+    }
+
+    // The second unit is NOT always an IMEI of that shape - it may be a serial
+    // number, and it may carry letters. Checked for length and for obvious
+    // rubbish only; the technician reading it off the device knows better than
+    // a pattern does.
+    if ($form['imei_2'] !== '' && !preg_match('/^[A-Za-z0-9][A-Za-z0-9 \-\/]{3,31}$/', $form['imei_2'])) {
+        $errors[] = 'The second unit\'s number looks wrong. Use 4 to 32 characters '
+                  . '- digits, letters, hyphens.';
+    }
+
+    if ($form['imei'] !== '' && $form['imei'] === $form['imei_2']) {
+        $errors[] = 'Both boxes have the same IMEI. Leave the second one empty if '
+                  . 'there is only one unit.';
+    }
+    if ($form['imei'] === '' && $form['imei_2'] !== '') {
+        $errors[] = 'Put the first unit in the first box.';
     }
     if ($form['installed_on'] !== '' && $form['subscription_date'] !== ''
         && strtotime($form['subscription_date']) < strtotime($form['installed_on'])) {
@@ -112,7 +137,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!$errors) {
         try {
-            $cert = create_tracking_cert($form + ['signed_by' => $signedBy], $user);
+            // Two boxes in, one list out. create_tracking_cert() stores the rows
+            // and writes the printed "a / b" string from them.
+            $cert = create_tracking_cert(
+                $form + [
+                    'signed_by' => $signedBy,
+                    'imeis'     => [$form['imei'], $form['imei_2']],
+                ], $user);
             flash('Installation certificate for ' . $form['reg_no'] . ' sent to accounts for '
                 . 'approval. It takes its serial number once they confirm the payment.');
             redirect('tracking_view.php?id=' . $cert['id']);
@@ -145,8 +176,9 @@ layout_top('New installation certificate');
 layout_back('tracking_list.php', 'Back to installations');
 ?>
 <h1>New Installation Certificate</h1>
-<p class="hint">For a vehicle tracking unit. The certificate goes to
-accounts when you save, and is assigned a serial number once they confirm the payment.</p>
+<p class="hint">For a vehicle tracking unit. The expiry date is worked out from the subscription
+date &mdash; twelve months, ending the day before the anniversary. The certificate goes to
+accounts when you save, and takes its serial number once they confirm the payment.</p>
 
 <?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
 
@@ -176,7 +208,12 @@ accounts when you save, and is assigned a serial number once they confirm the pa
   <fieldset>
     <legend>Tracking unit</legend>
     <?php trk_input('imei', 'Track IMEI no.', $form['imei'],
-          ['inputmode' => 'numeric', 'maxlength' => 17, 'hint' => '15 digits, from the unit or the device list.']); ?>
+          ['inputmode' => 'numeric', 'maxlength' => 17,
+           'hint' => '15 digits, from the unit or the device list.']); ?>
+    <?php trk_input('imei_2', 'Second unit no. (optional)', $form['imei_2'],
+          ['maxlength' => 32, 'caps' => true, 'required' => false,
+           'hint' => 'Only if a second tracker is fitted. IMEI or serial, whatever is '
+                   . 'on the unit. Both print in one box, separated by a slash.']); ?>
     <?php trk_input('installed_on', 'Date installed', $form['installed_on'], ['type' => 'date']); ?>
   </fieldset>
 
@@ -187,7 +224,7 @@ accounts when you save, and is assigned a serial number once they confirm the pa
       <span class="field-row">
         <select name="term_months" id="term">
           <?php foreach ([12 => '1 year', 24 => '2 years', 36 => '3 years',
-                          48 => '4 years', 60 => '5 years', 72=> '6 years'] as $m => $text): ?>
+                          48 => '4 years', 60 => '5 years', 72 => '6 years'] as $m => $text): ?>
             <option value="<?= $m ?>" <?= (int)$form['term_months'] === $m ? 'selected' : '' ?>>
               <?= e($text) ?></option>
           <?php endforeach; ?>
@@ -205,7 +242,7 @@ accounts when you save, and is assigned a serial number once they confirm the pa
       certificate carries the same name.</p>
   </fieldset>
 
-  <button type="submit">Save Certificate</button>
+  <button type="submit">Save certificate</button>
 </form>
 
 <script>
@@ -243,6 +280,8 @@ document.querySelectorAll('input.caps').forEach(function (input) {
 
 // Contact: digits, spaces and + only. IMEI: digits only.
 (function () {
+  // imei_2 is deliberately absent: a second unit's number may carry letters, and
+  // stripping them as somebody types would quietly destroy what they entered.
   var rules = [['[name=client_phone]', /[^0-9+ ]/g], ['[name=imei]', /[^0-9]/g]];
   rules.forEach(function (rule) {
     var input = document.querySelector(rule[0]);
