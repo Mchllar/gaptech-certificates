@@ -264,7 +264,7 @@ $chips = [
     'all'       => 'All vehicles',
 ];
 
-layout_top('My vehicles', 'client');
+layout_top('My Vehicles', 'client');
 ?>
 
 <!-- FLASH -->
@@ -281,7 +281,6 @@ layout_top('My vehicles', 'client');
 
   <header class="fl-head">
     <div>
-      <h1>My vehicles</h1>
       <p class="fl-sub"><?= e($client['name']) ?> &middot;
          <?= (int)$counts['all'] ?> vehicle<?= $counts['all'] === 1 ? '' : 's' ?></p>
     </div>
@@ -328,9 +327,7 @@ layout_top('My vehicles', 'client');
       vehicle<?= $dueSoon === 1 ? ' needs' : 's need' ?> renewing.
     <?php endif; ?>
     To renew, call GAPTECH on
-    <strong><?= e(setting('cell', '')) ?></strong>.
-    We will confirm the tracking device is transmitting, agree the price with you,
-    and send you the payment details.
+    <strong><?= e(setting('cell', '')) ?></strong>
   </p>
 
   <?php if (!$shown): ?>
@@ -499,7 +496,7 @@ layout_top('My vehicles', 'client');
     justify-content: space-between; gap: 16px; margin: 0 0 18px;
   }
   #fleet h1 { margin: 0; font-size: 24px; font-weight: 700; color: #0D4F72; }
-  #fleet .fl-sub { margin: 4px 0 0; font-size: 14px; color: #5C6775; }
+  #fleet .fl-sub { margin: 4px 0 0; font-size: 20px; color: #0D4F72; }
 
   #fleet .fl-sr {
     position: absolute; width: 1px; height: 1px; overflow: hidden;

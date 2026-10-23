@@ -9,6 +9,8 @@ define('ROOT_DIR', dirname(__DIR__));
 
 $config = require APP_DIR . '/config.php';
 
+require APP_DIR . '/pdf.php';
+require_once APP_DIR . '/qr.php';
 // Never show a raw PHP error to a user. Log the detail, show a plain page with a
 // reference the administrator can look up.
 ini_set('display_errors', '0');

@@ -262,44 +262,34 @@ function render_sheet(array $cert, string $mode = 'screen'): string
     return (string)ob_get_clean();
 }
 
-/**
- * Produce the PDF and remember where it is. Returns the file path, or null when
- * wkhtmltopdf is not configured (the browser's own "Save as PDF" is then used instead).
- */
 function certificate_pdf(array $cert, bool $force = false): ?string
 {
     global $config;
-    if (empty($config['wkhtmltopdf'])) {
+ 
+    // Nothing to render with at all: hand back null so certificate_print.php falls
+    // back to the browser's print dialog rather than showing a client an error.
+    if (pdf_engine() === null) {
         return null;
     }
-    $dir = rtrim($config['storage'], '/\\') . '/certificates';
+ 
+    $dir = rtrim((string)$config['storage'], '/\\') . '/certificates';
     if (!is_dir($dir) && !mkdir($dir, 0770, true) && !is_dir($dir)) {
         throw new RuntimeException('Cannot create storage folder: ' . $dir);
     }
+ 
     $pdfPath = $dir . '/certificate-' . $cert['number'] . '.pdf';
     if (!$force && is_file($pdfPath) && !empty($cert['pdf_path'])) {
         return $pdfPath;
     }
-
-    $htmlPath = tempnam(sys_get_temp_dir(), 'cert') . '.html';
-    file_put_contents($htmlPath, render_sheet($cert, 'pdf'));
-
-    $cmd = escapeshellarg($config['wkhtmltopdf'])
-        . ' --quiet --page-size A4 --orientation Landscape'
-        . ' --margin-top 0 --margin-bottom 0 --margin-left 0 --margin-right 0'
-        . ' --dpi 96 --enable-local-file-access'
-        . ' ' . escapeshellarg($htmlPath) . ' ' . escapeshellarg($pdfPath) . ' 2>&1';
-    exec($cmd, $output, $status);
-    @unlink($htmlPath);
-
-    if ($status !== 0 || !is_file($pdfPath)) {
-        throw new RuntimeException('wkhtmltopdf failed: ' . implode("\n", $output));
-    }
-
+ 
+    pdf_render_certificate('cert', (int)$cert['id'], $pdfPath, 'landscape');
+ 
     q('UPDATE certificates SET pdf_path = ?, pdf_sha256 = ? WHERE id = ?',
         [$pdfPath, hash_file('sha256', $pdfPath), $cert['id']]);
+ 
     return $pdfPath;
 }
+ 
 
 /** Expiry date the certificate wording implies: twelve months from issue, less a day. */
 function default_expiry(string $issueDate, int $months = 12): string
@@ -484,5 +474,55 @@ function reject_certificate(array $cert, array $user, string $reason): array
  
     audit('reject_certificate', 'certificate', (int)$cert['id'], ['reason' => $reason]);
  
+    return q('SELECT * FROM certificates WHERE id = ?', [$cert['id']])->fetch();
+}
+
+
+function certificate_current_for_plate(string $reg): ?array
+{
+    $row = q("SELECT c.*
+              FROM certificates c
+              JOIN vehicles v ON v.id = c.vehicle_id
+              WHERE regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g')
+                    = regexp_replace(upper(?), '[^A-Z0-9]', '', 'g')
+                AND c.approval_status = 'approved'
+                AND c.status = 'issued'
+                AND c.issue_date <= current_date
+              ORDER BY c.issue_date DESC, c.number DESC
+              LIMIT 1", [$reg])->fetch();
+
+    return $row ?: null;
+}
+
+/**
+ * Withdraw a certificate.
+ *
+ * Voiding is for a certificate that should never have gone out, or whose vehicle
+ * has had the governor removed. It is NOT how a certificate is replaced - a
+ * renewal supersedes the old one on its own.
+ *
+ * The row is kept. Verification still finds it and says it was withdrawn, which
+ * is the whole point: a voided certificate may be in somebody's glovebox, and an
+ * officer checking it deserves an answer rather than "not found".
+ */
+function void_certificate(array $cert, array $user, string $reason): array
+{
+    $reason = trim($reason);
+    if ($reason === '') {
+        throw new RuntimeException('Say why the certificate is being withdrawn.');
+    }
+    if (($cert['status'] ?? '') === 'voided') {
+        throw new RuntimeException('That certificate has already been withdrawn.');
+    }
+
+    q("UPDATE certificates SET status = 'voided', void_reason = ? WHERE id = ?",
+      [$reason, $cert['id']]);
+
+    audit('void_certificate', 'certificate', (int)$cert['id'], [
+        'number' => $cert['number'],
+        'reason' => $reason,
+        'by'     => (int)$user['id'],
+    ]);
+
     return q('SELECT * FROM certificates WHERE id = ?', [$cert['id']])->fetch();
 }

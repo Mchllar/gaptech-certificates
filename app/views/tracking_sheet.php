@@ -336,5 +336,12 @@ $rows = [
   </div><!-- /inner -->
 </div>
 
+<?php
+  // The back of the certificate: the guarantee terms. Its own file so the
+  // wording - which is a warranty GAPTECH is bound by - can be changed without
+  // anybody going near the certificate layout.
+  require __DIR__ . '/tracking_terms.php';
+?>
+
 </body>
 </html>

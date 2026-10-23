@@ -99,7 +99,7 @@ layout_back('index.php', 'Back to SG. Certificates');
       <td><?= $loffset + $i + 1 ?></td>
       <td><?= e($row['name']) ?></td>
       <td><?= e($row['username']) ?></td>
-      <td><?= e($row['email']) ?></td>
+      <td><?= !empty($row['email']) ? e($row['email']) : '-' ?></td>
       <td><button type="button" class="link-button creds-edit"
                   data-client-id="<?= (int)$row['id'] ?>">Change</button></td>
     </tr>

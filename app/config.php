@@ -34,6 +34,7 @@ return [
     //   Windows: C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe
     //   Linux:   /usr/bin/wkhtmltopdf
     'wkhtmltopdf' => '',
+    'chrome_path' => '',
 
     // Ubuntu/Debian ship an unpatched build that renders at ~77% and needs 1.299.
     // Use 1.0 for the official patched build from wkhtmltopdf.org (and on Windows).

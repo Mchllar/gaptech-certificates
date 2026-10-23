@@ -492,41 +492,29 @@ function render_tracking_sheet(array $cert, string $mode = 'screen'): string
     return (string)ob_get_clean();
 }
 
-/**
- * Produce the PDF and remember where it is. Returns the file path, or null when
- * wkhtmltopdf is not configured - the browser's own "Save as PDF" is used instead.
- */
 function tracking_pdf(array $cert, bool $force = false): ?string
 {
     global $config;
-    if (empty($config['wkhtmltopdf'])) {
-        return null;
+ 
+    if (pdf_engine() === null) {
+        return null;                       // same fallback as certificate_pdf()
     }
+ 
     $dir = rtrim((string)$config['storage'], '/\\') . '/tracking';
     if (!is_dir($dir) && !mkdir($dir, 0770, true) && !is_dir($dir)) {
         throw new RuntimeException('Cannot create storage folder: ' . $dir);
     }
+ 
     $pdfPath = $dir . '/installation-' . tracking_label($cert) . '.pdf';
     if (!$force && is_file($pdfPath) && !empty($cert['pdf_path'])) {
         return $pdfPath;
     }
-
-    $htmlPath = tempnam(sys_get_temp_dir(), 'trk') . '.html';
-    file_put_contents($htmlPath, render_tracking_sheet($cert, 'pdf'));
-
-    $cmd = escapeshellarg((string)$config['wkhtmltopdf'])
-        . ' --quiet --page-size A4 --orientation Portrait'
-        . ' --margin-top 0 --margin-bottom 0 --margin-left 0 --margin-right 0'
-        . ' --dpi 96 --enable-local-file-access'
-        . ' ' . escapeshellarg($htmlPath) . ' ' . escapeshellarg($pdfPath) . ' 2>&1';
-    exec($cmd, $output, $status);
-    @unlink($htmlPath);
-
-    if ($status !== 0 || !is_file($pdfPath)) {
-        throw new RuntimeException('wkhtmltopdf failed: ' . implode("\n", $output));
-    }
-
+ 
+    pdf_render_certificate('tracking', (int)$cert['id'], $pdfPath, 'portrait');
+ 
     q('UPDATE tracking_certificates SET pdf_path = ?, pdf_sha256 = ? WHERE id = ?',
         [$pdfPath, hash_file('sha256', $pdfPath), $cert['id']]);
+ 
     return $pdfPath;
 }
+ 

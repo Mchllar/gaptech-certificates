@@ -8,18 +8,29 @@ require APP_DIR . '/views/layout.php';
 if (!current_user() && current_client()) {
     redirect('client_portal.php');
 }
-$user = require_admin();
+// Both roles work from this list. Accounts used to be sent to a separate
+// approvals page, which meant reviewing a certificate without being able to see
+// it - they approved a payment and a number, and had to open the certificate in
+// another tab to know what they were releasing.
+$user  = require_staff();
+$isAdm = ($user['role'] ?? '') === 'administrator';
 
 $search = trim((string)($_GET['q'] ?? ''));
 $status = (string)($_GET['status'] ?? 'all');
-if (!in_array($status, ['all', 'pending', 'valid', 'expired', 'superseded', 'voided', 'rejected', 'scheduled'], true)) {
+if (!in_array($status, ['all', 'pending', 'valid', 'expired', 'superseded', 'voided', 'rejected'], true)) {
     $status = 'all';
 }
-$perPage = (int)($_GET['per'] ?? 10);
+$perPage = (int)($_GET['per'] ?? 25);
 if (!in_array($perPage, [10, 25, 50, 100], true)) {
-    $perPage = 10;
+    $perPage = 25;
 }
 $page = max(1, (int)($_GET['page'] ?? 1));
+
+// Accounts land on their queue rather than on everything, unless they ask
+// otherwise. It is the first thing they are here for.
+if (!$isAdm && !isset($_GET['status'])) {
+    $status = 'pending';
+}
 
 // Build the filter once and use it for both the count and the page of rows.
 $where = [];
@@ -38,11 +49,7 @@ if ($status === 'pending') {
 } elseif ($status === 'rejected') {
     $where[] = "c.approval_status = 'rejected'";
 } elseif ($status === 'valid') {
-    $where[] = "c.approval_status = 'approved' AND c.status = 'issued'
-                AND c.issue_date <= current_date AND c.expiry_date >= current_date";
-} elseif ($status === 'scheduled') {
-    $where[] = "c.approval_status = 'approved' AND c.status = 'issued'
-                AND c.issue_date > current_date";
+    $where[] = "c.approval_status = 'approved' AND c.status = 'issued' AND c.expiry_date >= current_date";
 } elseif ($status === 'expired') {
     $where[] = "c.approval_status = 'approved' AND c.status = 'issued' AND c.expiry_date < current_date";
 } elseif ($status === 'superseded') {
@@ -65,61 +72,13 @@ $offset = ($page - 1) * $perPage;
 $rows = q("SELECT c.*, v.reg_no, cl.name AS client_name $from $whereSql
            ORDER BY c.issued_at DESC LIMIT $perPage OFFSET $offset", $params)->fetchAll();
 
-// For superseded rows, find the certificate that replaced them, so the row can
-// link to the one that is current as well as to itself. One query for the whole
-// page, not one per row.
-$currentFor = [];
-$plates = [];
-foreach ($rows as $row) {
-    if ($row['status'] === 'superseded') {
-        $plates[] = plate_key((string)$row['reg_no']);
-    }
-}
-if ($plates) {
-    $plates = array_values(array_unique($plates));
-    $marks = implode(',', array_fill(0, count($plates), '?'));
-    $found = q("SELECT DISTINCT ON (regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g'))
-                       regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g') AS plate,
-                       c.id
-                FROM certificates c
-                JOIN vehicles v ON v.id = c.vehicle_id
-                WHERE regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g') IN ($marks)
-                  AND c.approval_status = 'approved' AND c.status = 'issued'
-                ORDER BY regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g'),
-                         c.expiry_date DESC, c.number DESC", $plates)->fetchAll();
-    foreach ($found as $f) {
-        $currentFor[$f['plate']] = (int)$f['id'];
-    // Some superseded rows have no live replacement because the renewal is still
-// with accounts. Find those too, so the row says so instead of going quiet.
-$pendingFor = [];
-$missing = array_values(array_diff($plates, array_keys($currentFor)));
-if ($missing) {
-    $marks = implode(',', array_fill(0, count($missing), '?'));
-    $found = q("SELECT DISTINCT ON (regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g'))
-                       regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g') AS plate, c.id
-                FROM certificates c
-                JOIN vehicles v ON v.id = c.vehicle_id
-                WHERE regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g') IN ($marks)
-                  AND c.approval_status = 'pending'
-                ORDER BY regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g'),
-                         c.issued_at DESC", $missing)->fetchAll();
-    foreach ($found as $f) {
-        $pendingFor[$f['plate']] = (int)$f['id'];
-    }
-}
-    }
-}
-
 // Counts for the filter chips
 $counts = q("SELECT
     count(*) AS all_count,
     count(*) FILTER (WHERE approval_status = 'pending') AS pending_count,
     count(*) FILTER (WHERE approval_status = 'rejected') AS rejected_count,
     count(*) FILTER (WHERE approval_status = 'approved' AND status = 'issued'
-                     AND issue_date <= current_date
                      AND expiry_date >= current_date) AS valid_count,
-    count(*) FILTER (WHERE approval_status = 'approved' AND status = 'issued'
-                     AND issue_date > current_date) AS scheduled_count,
     count(*) FILTER (WHERE approval_status = 'approved' AND status = 'issued'
                      AND expiry_date < current_date) AS expired_count,
     count(*) FILTER (WHERE status = 'superseded') AS superseded_count,
@@ -139,6 +98,8 @@ function page_link(array $overrides = []): string
 }
 
 // Only approved, current certificates can expire - a pending one has not started yet.
+$expiring = [];
+if ($isAdm) {
 $expiring = q("SELECT c.id, c.number, c.expiry_date, v.reg_no, cl.name AS client_name
                FROM certificates c
                JOIN vehicles v ON v.id = c.vehicle_id
@@ -146,27 +107,15 @@ $expiring = q("SELECT c.id, c.number, c.expiry_date, v.reg_no, cl.name AS client
                WHERE c.approval_status = 'approved' AND c.status = 'issued'
                  AND c.expiry_date BETWEEN current_date AND current_date + 30
                ORDER BY c.expiry_date")->fetchAll();
+}
 
-layout_top('Speed Governor Certificates');
+layout_top('Speed Governor Installations');
 ?>
-<style>
-  .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
-     /* ---- a little wider once there is room ---- */
-  .vfy h1.vfy-title {
-    margin: 0 0 6px;
-    font-size: 22px; font-weight: 700; letter-spacing: -.4px;
-    line-height: 1.25; color: #0D4F72;
-    padding-left: 12px; border-left: 4px solid #8CC63F;
-  }
-  @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
-  .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5; text-align: center; }
+<!-- <h1>Governor Installations</h1> -->
+<p class="page-intro">Search, filter and review the speed governor certificates.</p>
 
-</style>
-
-<div class="vfy">
-<h1 class="vfy-title">Speed Governor Certificates</h1>
 <?php if ((int)$counts['pending_count'] > 0): ?>
-  <p class="vfy-sub" style="text-align:left">
+  <p class="hint" style="text-align:left">
     <?= (int)$counts['pending_count'] ?> certificate<?= $counts['pending_count'] == 1 ? '' : 's' ?>
     waiting for accounts to confirm payment. They cannot be printed or downloaded until approved.
   </p>
@@ -180,7 +129,9 @@ layout_top('Speed Governor Certificates');
   <?php if ($search !== ''): ?>
     <a class="button secondary" href="<?= e(page_link(['q' => '', 'page' => 1])) ?>">Clear</a>
   <?php endif; ?>
-  <a class="button" href="certificate_new.php">New certificate</a>
+  <?php if ($isAdm): ?>
+    <a class="button" href="certificate_new.php">New certificate</a>
+  <?php endif; ?>
 </form>
 
 <div class="filters">
@@ -188,7 +139,6 @@ layout_top('Speed Governor Certificates');
       'all' => ['All', $counts['all_count']],
       'pending' => ['Pending', $counts['pending_count']],
       'valid' => ['Valid', $counts['valid_count']],
-      'scheduled'  => ['Scheduled', $counts['scheduled_count']],
       'expired' => ['Expired', $counts['expired_count']],
       'superseded' => ['Superseded', $counts['superseded_count']],
       'rejected' => ['Rejected', $counts['rejected_count']],
@@ -212,22 +162,8 @@ layout_top('Speed Governor Certificates');
     <td><?= e(fmt_date($row['issue_date'])) ?></td>
     <td><?= e(fmt_date($row['expiry_date'])) ?></td>
     <td class="status-<?= strtolower(certificate_status($row)) ?>"><?= e(certificate_status($row)) ?></td>
-    <td class="row-links">
-      <?php
-        $key  = plate_key((string)$row['reg_no']);
-        $sup  = $row['status'] === 'superseded';
-        $cur  = $sup ? ($currentFor[$key] ?? null) : null;
-        $pend = ($sup && !$cur) ? ($pendingFor[$key] ?? null) : null;
-      ?>
-      <a href="certificate_view.php?id=<?= (int)$row['id'] ?>">Open</a>
-      <?php if ($cur): ?>
-        <span class="sep">&middot;</span>
-        <a href="certificate_view.php?id=<?= $cur ?>">View current</a>
-      <?php elseif ($pend): ?>
-        <span class="sep">&middot;</span>
-        <a href="certificate_view.php?id=<?= $pend ?>" style="color:gray;">Pending Approval</a>
-      <?php endif; ?>
-    </td>
+    <td><a href="certificate_view.php?id=<?= (int)$row['id'] ?>">
+      <?= $row['approval_status'] === 'pending' && !$isAdm ? 'Review' : 'Open' ?></a></td>
   </tr>
   <?php endforeach; ?>
   <?php if (!$rows): ?><tr><td colspan="8">Nothing matches those filters.</td></tr><?php endif; ?>
@@ -263,7 +199,9 @@ layout_top('Speed Governor Certificates');
   </span>
 </div>
 
-<h2>Expiring in the next 30 days</h2>
+<?php if ($isAdm): ?>
+   
+<h2 style="color: #1d5a16 ; margin-bottom: 10px;">Expiring in the next 30 days</h2>
 <table>
   <tr><th>Expires</th><th>No.</th><th>Vehicle</th><th>Customer</th><th></th></tr>
   <?php foreach ($expiring as $row): ?>
@@ -272,14 +210,10 @@ layout_top('Speed Governor Certificates');
     <td><?= e((string)$row['number']) ?></td>
     <td><?= e($row['reg_no']) ?></td>
     <td><?= e($row['client_name']) ?></td>
-    <td><button type="button" class="link-button renew-open"
-        data-id="<?= (int)$row['id'] ?>"
-        data-reg="<?= e($row['reg_no']) ?>"
-        data-cert="<?= e((string)$row['number']) ?>"
-        data-client="<?= e($row['client_name']) ?>">Renew</button></td>  </tr>
+    <td><a href="certificate_new.php?reg=<?= urlencode($row['reg_no']) ?>">Renew</a></td>
+  </tr>
   <?php endforeach; ?>
   <?php if (!$expiring): ?><tr><td colspan="5">Nothing due in the next 30 days.</td></tr><?php endif; ?>
 </table>
-<div>
-<?php require APP_DIR . '/views/renew_modal.php'; ?>
+<?php endif; ?>
 <?php layout_bottom(); ?>

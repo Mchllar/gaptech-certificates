@@ -107,8 +107,7 @@ $gtName = $gtUser ? (string)($gtUser['name'] ?? '') : (string)($gtClient['name']
 
   <nav class="gt-nav">
     <?php if ($gtRole === 'accounts'): ?>
-      <?= gt_link('approvals.php', 'approvals', 'Review SG. Certificates') ?>
-      <?= gt_link('payments.php', 'payments', 'SG. Certificates') ?>
+      <?= gt_link('index.php', 'certs', 'Certificates') ?>
       <?= gt_link('tracking_list.php', 'certs', 'Tracking Certificates') ?>
       <?= gt_link('verify.php', 'verify', 'Verify a SG. Certificate') ?>
       <?= gt_link('change_password.php', 'password', 'Change Password') ?>

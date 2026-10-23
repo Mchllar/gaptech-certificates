@@ -122,3 +122,47 @@ C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php:92
 #4 C:\xampp\htdocs\gaptech-certificates\public\device_queue.php(31): devices_due_for_check(30)
 #5 {main}
 
+2026-10-23 10:38:30  [05B20E]  /gaptech-certificates/public/certificate_print.php?id=10&print=1
+Failed opening required 'C:\xampp\htdocs\gaptech-certificates\app/pdf.php' (include_path='C:\xampp\php\PEAR')
+C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php:69
+#0 C:\xampp\htdocs\gaptech-certificates\public\certificate_print.php(22): require()
+#1 {main}
+
+2026-10-23 10:38:32  [7FE3EE]  /gaptech-certificates/public/client_portal.php
+Failed opening required 'C:\xampp\htdocs\gaptech-certificates\app/pdf.php' (include_path='C:\xampp\php\PEAR')
+C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php:69
+#0 C:\xampp\htdocs\gaptech-certificates\public\client_portal.php(24): require()
+#1 {main}
+
+2026-10-23 10:38:33  [3FCEBE]  /gaptech-certificates/public/client_login.php
+Failed opening required 'C:\xampp\htdocs\gaptech-certificates\app/pdf.php' (include_path='C:\xampp\php\PEAR')
+C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php:69
+#0 C:\xampp\htdocs\gaptech-certificates\public\client_login.php(3): require()
+#1 {main}
+
+2026-10-23 10:38:34  [B7C203]  /gaptech-certificates/public/verify.php?c=13764-demo-11287cdb
+Failed opening required 'C:\xampp\htdocs\gaptech-certificates\app/pdf.php' (include_path='C:\xampp\php\PEAR')
+C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php:69
+#0 C:\xampp\htdocs\gaptech-certificates\public\verify.php(17): require()
+#1 {main}
+
+2026-10-23 10:39:03  [DFD2FA]  /gaptech-certificates/public/verify.php
+Failed opening required 'C:\xampp\htdocs\gaptech-certificates\app/pdf.php' (include_path='C:\xampp\php\PEAR')
+C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php:69
+#0 C:\xampp\htdocs\gaptech-certificates\public\verify.php(17): require()
+#1 {main}
+
+2026-10-23 10:39:23  [224693]  /gaptech-certificates/public/client_portal.php
+Failed opening required 'C:\xampp\htdocs\gaptech-certificates\app/pdf.php' (include_path='C:\xampp\php\PEAR')
+C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php:69
+#0 C:\xampp\htdocs\gaptech-certificates\public\client_portal.php(24): require()
+#1 {main}
+
+2026-10-23 10:45:49  [41FD43]  /gaptech-certificates/public/client_portal.php
+Cannot redeclare pdf_browser_candidates() (previously declared in C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php:373)
+C:\xampp\htdocs\gaptech-certificates\app\pdf.php:76
+
+2026-10-23 10:45:50  [EF5D85]  /gaptech-certificates/public/client_portal.php
+Cannot redeclare pdf_browser_candidates() (previously declared in C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php:373)
+C:\xampp\htdocs\gaptech-certificates\app\pdf.php:76
+
