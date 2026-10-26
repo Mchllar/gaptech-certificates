@@ -107,7 +107,7 @@ $gtName = $gtUser ? (string)($gtUser['name'] ?? '') : (string)($gtClient['name']
 
   <nav class="gt-nav">
     <?php if ($gtRole === 'accounts'): ?>
-      <?= gt_link('index.php', 'certs', 'Certificates') ?>
+      <?= gt_link('index.php', 'certs', 'SG. Certificates') ?>
       <?= gt_link('tracking_list.php', 'certs', 'Tracking Certificates') ?>
       <?= gt_link('verify.php', 'verify', 'Verify a SG. Certificate') ?>
       <?= gt_link('change_password.php', 'password', 'Change Password') ?>
@@ -117,7 +117,7 @@ $gtName = $gtUser ? (string)($gtUser['name'] ?? '') : (string)($gtClient['name']
       <?= gt_link('verify.php', 'verify', 'Verify SG. Certificate') ?>
 
     <?php else: ?>
-      <?= gt_link('dashboard.php', 'dashboard', 'SG. Dashboard') ?>
+      <?= gt_link('dashboard.php', 'dashboard', 'Dashboard') ?>
       <?= gt_link('index.php', 'certs', 'SG. Certificates') ?>
       <?= gt_link('tracking_list.php', 'certs', 'Tracking Installations') ?>
       <?= gt_link('verify.php', 'verify', 'Verify a SG. Certificate') ?>

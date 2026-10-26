@@ -57,24 +57,6 @@ if (!function_exists('default_expiry')) {
 // State
 // ---------------------------------------------------------------------------
 
-/** What state a tracking certificate is in. Approval comes before everything else. */
-function tracking_status(array $cert): string
-{
-    $approval = $cert['approval_status'] ?? 'approved';
-    if ($approval === 'pending') {
-        return 'Pending approval';
-    }
-    if ($approval === 'rejected') {
-        return 'Rejected';
-    }
-    if ($cert['status'] === 'voided') {
-        return 'Voided';
-    }
-    if ($cert['status'] === 'superseded') {
-        return 'Superseded';
-    }
-    return strtotime($cert['expiry_date']) < strtotime(date('Y-m-d')) ? 'Expired' : 'Valid';
-}
 
 /** Only an approved, current, unexpired certificate may be printed or downloaded. */
 function tracking_is_releasable(array $cert): bool
@@ -518,3 +500,197 @@ function tracking_pdf(array $cert, bool $force = false): ?string
     return $pdfPath;
 }
  
+
+/**
+ * Three functions to ADD to the end of app/tracking.php, plus one small change to
+ * tracking_status() that is already in that file.
+ *
+ * They cover a tracker being taken off a vehicle - almost always because GAPTECH
+ * has recovered the unit after a repossession - and being fitted to somebody
+ * else's vehicle afterwards.
+ *
+ * The second half needs nothing new: the new customer's certificate is an ordinary
+ * new installation with the same IMEI, a fresh subscription and the usual trip
+ * through accounts. tracking_imeis.imei was never unique, so nothing was ever in
+ * the way of reusing a unit.
+ *
+ * What was missing is the first half, and the guard that connects the two.
+ */
+
+
+// ===========================================================================
+// 1. REPLACE tracking_status() with this. One new line.
+// ===========================================================================
+
+/**
+ * What to call this certificate on screen.
+ *
+ * 'Removed' is not 'Voided'. Voided means the certificate should never have gone
+ * out. Removed means it was perfectly good for the months it covered, and the unit
+ * has since come off the vehicle - which is what an officer checking the old
+ * vehicle's certificate needs to be told.
+ */
+function tracking_status(array $cert): string
+{
+    $approval = $cert['approval_status'] ?? 'approved';
+    if ($approval === 'pending') {
+        return 'Pending approval';
+    }
+    if ($approval === 'rejected') {
+        return 'Rejected';
+    }
+    if ($cert['status'] === 'voided') {
+        return 'Voided';
+    }
+    if ($cert['status'] === 'removed') {
+        return 'Unit removed';
+    }
+    if ($cert['status'] === 'superseded') {
+        return 'Superseded';
+    }
+    return strtotime($cert['expiry_date']) < strtotime(date('Y-m-d')) ? 'Expired' : 'Valid';
+}
+
+
+// ===========================================================================
+// 2. ADD these three at the end of app/tracking.php
+// ===========================================================================
+
+/**
+ * Record that the tracker has been taken off this vehicle.
+ *
+ * The certificate is kept, with the date and the reason. The vehicle stops being
+ * covered from that moment, because there is no longer a box in it - the dashboard
+ * and the renewal lists both read "covered" from the certificate in force, so this
+ * is what takes it out of them.
+ *
+ * The remaining subscription time ends here. It belonged to the customer who had
+ * the vehicle; the next customer buys their own. Nothing is refunded or carried
+ * across by the system, and nothing pretends to.
+ */
+function remove_tracking_unit(array $cert, array $user, string $reason, string $when = ''): array
+{
+    $reason = trim($reason);
+    if ($reason === '') {
+        throw new RuntimeException('Say why the unit is being removed.');
+    }
+
+    if (($cert['approval_status'] ?? '') !== 'approved') {
+        throw new RuntimeException('Only a released certificate can have its unit removed. '
+            . 'A pending one should be sent back instead.');
+    }
+    if (($cert['status'] ?? '') === 'removed') {
+        throw new RuntimeException('That unit is already recorded as removed.');
+    }
+    if (in_array($cert['status'] ?? '', ['voided', 'superseded'], true)) {
+        throw new RuntimeException('That certificate is already ' . $cert['status']
+            . ', so there is nothing to remove from it.');
+    }
+
+    $when = trim($when) !== '' ? $when : date('Y-m-d');
+    if (strtotime($when) === false) {
+        throw new RuntimeException('That removal date is not a date.');
+    }
+    // A unit cannot come off before it went on, and recording a removal in the
+    // future would take a vehicle out of cover it still has.
+    if (strtotime($when) < strtotime((string)$cert['installed_on'])) {
+        throw new RuntimeException('The unit cannot be removed before it was installed ('
+            . fmt_date((string)$cert['installed_on']) . ').');
+    }
+    if (strtotime($when) > strtotime(date('Y-m-d'))) {
+        throw new RuntimeException('A removal cannot be dated in the future.');
+    }
+
+    q("UPDATE tracking_certificates
+          SET status = 'removed', removed_on = ?, removed_reason = ?, removed_by = ?
+        WHERE id = ?",
+      [date('Y-m-d', strtotime($when)), $reason, (int)$user['id'], $cert['id']]);
+
+    audit('remove_tracking_unit', 'tracking_certificate', (int)$cert['id'], [
+        'reg_no'      => $cert['reg_no'],
+        'imei'        => $cert['imei'],
+        'removed_on'  => date('Y-m-d', strtotime($when)),
+        'reason'      => $reason,
+        'cover_ended' => $cert['expiry_date'],   // what the customer gave up
+    ]);
+
+    return q('SELECT * FROM tracking_certificates WHERE id = ?', [$cert['id']])->fetch();
+}
+
+/**
+ * Is this IMEI already spoken for?
+ *
+ * Returns the certificate holding it, or null. Read the row's approval_status to
+ * tell the two cases apart - they need different words, not different rules.
+ *
+ *   approved + issued   the unit is in that vehicle now
+ *   pending             a certificate awaiting approval has already claimed it
+ *
+ * ---------------------------------------------------------------------------
+ * Pending certificates count, and that is the whole point
+ * ---------------------------------------------------------------------------
+ * The first version of this asked only about approved certificates, on the
+ * reasoning that a pending one has not been released so the unit is not really in
+ * service. True, and beside the point.
+ *
+ * A certificate sitting with accounts is a CLAIM on that unit. If a second
+ * certificate is raised for another vehicle with the same IMEI while the first is
+ * waiting, both pass the check, both go to accounts, and both get approved - two
+ * vehicles holding one box, which is exactly what this function exists to prevent.
+ * The window is however long accounts take, so days, not milliseconds.
+ *
+ * Rejected certificates are excluded: that claim was turned down. Removed, voided
+ * and superseded are excluded too - the unit has left, the certificate was an
+ * error, or it is a renewal of the same vehicle where the unit never moved.
+ *
+ * "Approved" deliberately does NOT mean unexpired. An expired certificate whose
+ * unit was never removed still means the box is in that vehicle.
+ */
+function tracking_imei_in_use(string $imei, ?int $exceptCertId = null): ?array
+{
+    $imei = trim($imei);
+    if ($imei === '') {
+        return null;
+    }
+
+    $row = q("SELECT c.*
+                FROM tracking_certificates c
+                JOIN tracking_imeis i ON i.cert_id = c.id
+               WHERE i.imei = ?
+                 AND c.approval_status IN ('approved', 'pending')
+                 AND c.status = 'issued'
+                 -- cast needed: PostgreSQL cannot infer the type of a parameter
+                 -- that only ever appears in an IS NULL test
+                 AND (?::int IS NULL OR c.id <> ?::int)
+               -- an approved claim outranks a pending one, so the message names
+               -- the vehicle the unit is actually in when both exist
+               ORDER BY (c.approval_status = 'approved') DESC,
+                        c.subscription_date DESC, c.id DESC
+               LIMIT 1", [$imei, $exceptCertId, $exceptCertId])->fetch();
+
+    return $row ?: null;
+}
+
+/**
+ * Everywhere this unit has been, newest first.
+ *
+ * The question anybody holding a recovered tracker asks, and the one support asks
+ * when a customer says their vehicle stopped reporting. Renewals of the same
+ * vehicle are included - they are part of the unit's life even though it did not
+ * move - so the caller can show them or fold them up as it likes.
+ */
+function tracking_device_history(string $imei): array
+{
+    $imei = trim($imei);
+    if ($imei === '') {
+        return [];
+    }
+
+    return q("SELECT c.id, c.number, c.reg_no, c.client_name, c.status, c.approval_status,
+                     c.installed_on, c.subscription_date, c.expiry_date,
+                     c.removed_on, c.removed_reason
+                FROM tracking_certificates c
+                JOIN tracking_imeis i ON i.cert_id = c.id
+               WHERE i.imei = ?
+               ORDER BY c.subscription_date DESC, c.id DESC", [$imei])->fetchAll();
+}

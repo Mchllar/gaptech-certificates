@@ -22,7 +22,7 @@ $vfyBack = '';
 if (function_exists('current_user') && ($vfyWho = current_user())) {
     $vfyBack = in_array(strtolower((string)($vfyWho['role'] ?? '')), ['administrator', 'admin'], true)
         ? 'welcome.php'
-        : 'payments.php';
+        : 'index.php';
 } elseif (function_exists('current_client') && current_client()) {
     $vfyBack = 'client_portal.php';
 }
@@ -173,7 +173,7 @@ if ($blocked) {
     }
 }
 
-layout_top('Verify a SG. Certificate', 'public');
+layout_top('', 'public');
 ?>
 <style>
   /* -------- verification page, phone first -------------------------------- */

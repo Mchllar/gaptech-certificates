@@ -108,7 +108,7 @@ if ($isAdm) {
                    ORDER BY expiry_date")->fetchAll();
 }
 
-layout_top('Tracking Installations');
+layout_top('');
 ?>
 <style>
     .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }

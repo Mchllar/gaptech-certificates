@@ -91,7 +91,9 @@ if ($hasTracking) {
   SELECT DISTINCT ON (regexp_replace(upper(t.reg_no), '[^A-Z0-9]', '', 'g'))
          'tracking'::text, t.id, t.reg_no, t.client_name, t.number, t.expiry_date
     FROM tracking_certificates t
-   WHERE t.approval_status = 'approved' AND t.status <> 'voided'
+   -- 'removed' as well as 'voided': once the tracker is off the vehicle there is
+   -- no box in it, so it is not covered however long the subscription had left.
+   WHERE t.approval_status = 'approved' AND t.status NOT IN ('voided', 'removed')
      AND t.subscription_date <= current_date
    ORDER BY regexp_replace(upper(t.reg_no), '[^A-Z0-9]', '', 'g'),
             t.subscription_date DESC, t.number DESC

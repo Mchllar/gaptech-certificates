@@ -368,44 +368,73 @@ function certificate_label(array $cert): string
         : draft_ref($cert);
 }
 
+
 /**
  * Replaces approve_certificate() in app/certificates.php.
  *
- * Three things were wrong in the pasted version:
+ * Needs migration_lpo.sql to have been run first - it writes certificates.lpo_no.
  *
- *   1. "try {" was missing after beginTransaction(), so the catch had nothing
- *      to attach to.
- *   2. The main UPDATE - the one that writes the number, the snapshot and
- *      approval_status = 'approved' - had been overwritten by a copy of the
- *      supersede statement. The function allocated a number and then never
- *      used it, so nothing was ever actually approved.
- *   3. The supersede statement appeared twice.
+ * Three things may now be recorded, and all three are optional:
+ *
+ *   $ref    money received. One payment cannot approve two certificates, so this
+ *           is checked against every other certificate - but only when it is
+ *           given. Any number of certificates may have none.
+ *
+ *   $note   the payment message, pasted by whoever had it. An administrator may
+ *           paste it when raising the renewal, or leave it for accounts.
+ *
+ *   $lpo    a local purchase order: the client has not paid, and the certificate
+ *           is being issued against their promise to. NOT checked for duplicates
+ *           on purpose - one LPO routinely covers a whole fleet.
+ *
+ * Approving is still accounts saying the certificate may go out. What changed is
+ * that they can now say so on the strength of an LPO rather than a payment.
  */
 
 /**
- * Accounts approves a certificate: the payment is on record, so the certificate
- * gets its number and becomes printable, downloadable and verifiable.
+ * Accounts releases the certificate: it gets its number and becomes printable,
+ * downloadable and verifiable.
  */
-function approve_certificate(array $cert, array $user, string $ref, string $note): array
+function approve_certificate(array $cert, array $user, string $ref = '',
+                             string $note = '', string $lpo = ''): array
 {
-    $ref = trim($ref);
-    if ($ref === '') {
-        throw new RuntimeException('A payment reference is required.');
-    }
+    $ref  = trim($ref);
+    $lpo  = trim($lpo);
+    $note = trim($note);
+
     if (($cert['approval_status'] ?? '') === 'approved') {
         throw new RuntimeException('That certificate has already been approved.');
+    }
+
+    // Something has to be recorded - but it does not have to be a reference.
+    //
+    // The old rule demanded a payment reference, which made it impossible to
+    // release a certificate against an LPO: the client has not paid, so there is
+    // no reference to type, and the one thing accounts is relying on is the LPO
+    // number itself. It also blocked releasing on a pasted M-Pesa message alone,
+    // where the reference is right there in the text.
+    //
+    // So the floor is "say what you are releasing this on", not "say it in this
+    // particular field". All three blank still fails, because a release with
+    // nothing recorded is accounts approving a certificate on no evidence at all.
+    if ($ref === '' && $lpo === '' && $note === '') {
+        throw new RuntimeException('Record the payment reference, the LPO number, or paste '
+            . 'the payment message before releasing this certificate.');
     }
 
     $pdo = db();
     $pdo->beginTransaction();
     try {
-        // One payment, one certificate.
-        $used = q('SELECT id, number FROM certificates
-                   WHERE upper(payment_ref) = upper(?) AND id <> ?',
-                  [$ref, $cert['id']])->fetch();
-        if ($used) {
-            throw new RuntimeException('That payment reference was already used on certificate '
-                . ($used['number'] ?: 'draft ' . $used['id']) . '.');
+        // One payment, one certificate - but only when a reference was recorded.
+        // A blank is not a duplicate of another blank.
+        if ($ref !== '') {
+            $used = q('SELECT id, number FROM certificates
+                       WHERE upper(payment_ref) = upper(?) AND id <> ?',
+                      [$ref, $cert['id']])->fetch();
+            if ($used) {
+                throw new RuntimeException('That payment reference was already used on certificate '
+                    . ($used['number'] ?: 'draft ' . $used['id']) . '.');
+            }
         }
 
         $number = next_certificate_number();
@@ -416,10 +445,11 @@ function approve_certificate(array $cert, array $user, string $ref, string $note
 
         q("UPDATE certificates
               SET number = ?, snapshot = ?, approval_status = 'approved', status = 'issued',
-                  payment_ref = ?, payment_note = ?, approved_by = ?, approved_at = now(),
+                  payment_ref = ?, payment_note = ?, lpo_no = ?,
+                  approved_by = ?, approved_at = now(),
                   rejection_reason = NULL, pdf_path = NULL, pdf_sha256 = NULL
             WHERE id = ?",
-            [$number, json_encode($snapshot), $ref, $note, $user['id'], $cert['id']]);
+            [$number, json_encode($snapshot), $ref, $note, $lpo, $user['id'], $cert['id']]);
 
         // Work out which of the vehicle's certificates is current TODAY, and
         // retire the rest.
@@ -448,16 +478,17 @@ function approve_certificate(array $cert, array $user, string $ref, string $note
         throw $err;
     }
 
-    audit('approve_certificate', 'certificate', (int)$cert['id'],
-        ['number' => $number, 'payment_ref' => $ref]);
+    audit('approve_certificate', 'certificate', (int)$cert['id'], [
+        'number'       => $number,
+        'payment_ref'  => $ref,
+        'lpo_no'       => $lpo,
+        'on_credit'    => $ref === '' && $lpo !== '',
+        'confirmed_by' => (int)$user['id'],
+    ]);
 
     return q('SELECT * FROM certificates WHERE id = ?', [$cert['id']])->fetch();
 }
 
-/**
- * Accounts rejects a certificate: no payment on record. It takes no number and
- * goes back to whoever issued it, with the reason.
- */
 function reject_certificate(array $cert, array $user, string $reason): array
 {
     $reason = trim($reason);

@@ -166,3 +166,23 @@ C:\xampp\htdocs\gaptech-certificates\app\pdf.php:76
 Cannot redeclare pdf_browser_candidates() (previously declared in C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php:373)
 C:\xampp\htdocs\gaptech-certificates\app\pdf.php:76
 
+2026-10-26 08:33:44  [C33DAF]  /gaptech-certificates/public/index.php
+Failed opening required 'C:\xampp\htdocs\gaptech-certificates\app\views/modal_base.php' (include_path='C:\xampp\php\PEAR')
+C:\xampp\htdocs\gaptech-certificates\app\views\renew_modal.php:40
+#0 C:\xampp\htdocs\gaptech-certificates\public\index.php(235): require()
+#1 {main}
+
+2026-10-26 08:35:02  [1940FC]  /gaptech-certificates/public/certificate_view.php?id=1
+Failed opening required 'C:\xampp\htdocs\gaptech-certificates\app/views/modal_base.php' (include_path='C:\xampp\php\PEAR')
+C:\xampp\htdocs\gaptech-certificates\public\certificate_view.php:299
+#0 {main}
+
+2026-10-26 10:49:53  [A227E5]  /gaptech-certificates/public/renew.php
+SQLSTATE[42703]: Undefined column: 7 ERROR:  column "lpo_no" of relation "certificates" does not exist
+LINE 1: UPDATE certificates SET payment_note = $1, lpo_no = $2 WHERE...
+                                                   ^
+C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php:94
+#0 C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php(94): PDOStatement->execute(Array)
+#1 C:\xampp\htdocs\gaptech-certificates\public\renew.php(67): q('UPDATE certific...', Array)
+#2 {main}
+

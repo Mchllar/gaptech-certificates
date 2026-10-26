@@ -31,33 +31,57 @@ $user = require_supervisor();
 $newPassword = null;          // shown once, after a reset
 $newPasswordFor = null;
 
+// What the dialog holds when the page renders. On a failed create these are what
+// was typed, so nothing has to be entered twice - the old version flashed an error
+// and redirected, which threw the whole form away and shut the dialog on it.
+$form = ['name' => '', 'email' => '', 'username' => '', 'role' => 'administrator'];
+$createErrors = [];
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
     $action = (string)($_POST['action'] ?? '');
 
     if ($action === 'create') {
-        $name = trim((string)$_POST['name']);
-        $email = trim((string)$_POST['email']);
-        $username = trim((string)$_POST['username']);
-        $role = (string)$_POST['role'];
-        $password = (string)$_POST['password'];
-          if ($name === '' || $username === '') {
-            flash('Name and username are required.');
-          } elseif (q('SELECT 1 FROM users WHERE lower(username) = lower(?)', [$username])->fetch()) {
-            flash('That username is taken.');
-          } elseif (($pwError = password_problem($password, (string)($_POST['password2'] ?? ''))) !== null) {
-            flash($pwError);
-          } elseif ($role !=='administrator') {
-            flash('Invalid role.');
-          } elseif (q('SELECT 1 FROM users WHERE lower(email) = lower(?)', [$email])->fetch()) {
-            flash('That e-mail already has an account.'); 
-          } else {
+        $form['name']     = trim((string)($_POST['name'] ?? ''));
+        $form['email']    = trim((string)($_POST['email'] ?? ''));
+        $form['username'] = trim((string)($_POST['username'] ?? ''));
+        $form['role']     = (string)($_POST['role'] ?? '');
+        $password         = (string)($_POST['password'] ?? '');
+
+        if ($form['name'] === '' || $form['username'] === '') {
+            $createErrors[] = 'Name and username are required.';
+        } elseif (q('SELECT 1 FROM users WHERE lower(username) = lower(?)', [$form['username']])->fetch()) {
+            $createErrors[] = 'That username is taken.';
+        } elseif (($pwError = password_problem($password, (string)($_POST['password2'] ?? ''))) !== null) {
+            $createErrors[] = $pwError;
+        } elseif (!in_array($form['role'], ['administrator', 'accounts'], true)) {
+            $createErrors[] = 'Invalid role.';
+        } elseif ($form['email'] !== ''
+                  && q('SELECT 1 FROM users WHERE lower(email) = lower(?)', [$form['email']])->fetch()) {
+            // Guarded with !== '' deliberately. Without it, the SECOND account
+            // created without an e-mail collides with the first one's blank and is
+            // refused - and e-mail is optional, so that is a real path.
+            $createErrors[] = 'That e-mail already has an account.';
+        } else {
             $id = (int)q('INSERT INTO users (name, username, email, password_hash, role)
-            VALUES (?, ?, ?, ?, ?) RETURNING id',
-            [$name, $username, $email, password_hash($password, PASSWORD_DEFAULT), $role])->fetchColumn();
-            flash('Account created for ' . $name . '.');
+                          VALUES (?, ?, ?, ?, ?) RETURNING id',
+                [$form['name'], $form['username'], $form['email'],
+                 password_hash($password, PASSWORD_DEFAULT), $form['role']])->fetchColumn();
+
+            // The file says every action is written to the audit log; creating an
+            // account was the one that was not. Never the password, obviously -
+            // not even its length.
+            audit('create_user', 'user', $id, [
+                'name'     => $form['name'],
+                'username' => $form['username'],
+                'role'     => $form['role'],
+                'by'       => (int)$user['id'],
+            ]);
+
+            flash('Account created for ' . $form['name'] . '.');
+            redirect('user_admin.php');
         }
-        redirect('user_admin.php');
+        // falls through and renders, with the dialog open and the values still in it
     }
 
     if ($action === 'reset') {
@@ -97,16 +121,51 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $users = q('SELECT * FROM users ORDER BY active DESC, name')->fetchAll();
-layout_top('Staff accounts');
+
+// A fresh suggestion each time the page loads, so the dialog opens with a usable
+// password already in it.
+$suggested = 'Kenya-' . random_int(100000, 999999);
+
+layout_top('');
 layout_back('index.php', 'Back to SG. Certificates');
 ?>
-<h1  class="page-title">Administrator Accounts</h1>
+<style>
+    .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+        /* ---- a little wider once there is room ---- */
+    .vfy h1.vfy-title {
+        margin: 0 0 6px;
+        font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+        line-height: 1.25; color: #0D4F72;
+        padding-left: 12px; border-left: 4px solid #8CC63F;
+    }
+    @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+    .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5;}
+
+    /* Heading on the left, the one button that opens the dialog on the right. */
+    .vfy-head { display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+                justify-content: space-between; margin: 0 0 14px; }
+    .vfy-head h1.vfy-title { margin: 0; }
+
+    /* Narrower than the certificate dialogs: it is a column of short fields, and a
+       720px box would leave each one stranded in white space. */
+    #m-newuser .gt-box { width: min(540px, calc(100vw - 32px)); }
+    #m-newuser .gt-f select { display: block; width: 100%; margin-top: 5px;
+        box-sizing: border-box; padding: 9px 11px; border: 1px solid #C9D3DC;
+        border-radius: 6px; font-family: inherit; font-size: 14px; font-weight: 400; }
+    #m-newuser .pw-rules { margin: 0 0 14px; }
+</style>
+
+<div class="vfy">
+  <div class="vfy-head">
+    <h1 class="vfy-title">Staff Accounts</h1>
+    <button type="button" class="button" data-modal="#m-newuser">New account</button>
+  </div>
 
 <?php if ($newPassword): ?>
   <div class="verify-result status-box-valid">
     <p class="verify-status">New password for <?= e((string)$newPasswordFor) ?></p>
     <p class="new-password"><?= e($newPassword) ?></p>
-    <p class="hint">Write it down or pass it on now &mdash; it is not shown again and is not stored anywhere
+    <p class="vfy-sub">Write it down or pass it on now &mdash; it is not shown again and is not stored anywhere
       in readable form. Tell them to change it after signing in.</p>
   </div>
 <?php endif; ?>
@@ -140,37 +199,60 @@ layout_back('index.php', 'Back to SG. Certificates');
   </tr>
   <?php endforeach; ?>
 </table>
+</div>
 
-<!--<h2>Create an Account</h2>-->
-<form method="post" class="card-form">
-  <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
-  <input type="hidden" name="action" value="create">
-  <fieldset>
-    <legend>Create New Account</legend>
-    <label class="field">Full name <span class="req">*</span>
-      <span class="field-row"><input name="name" required></span></label>
+<!-- ------------------------------------------------------------------ -->
+<!-- Create an account                                                  -->
+<!--                                                                    -->
+<!-- The form used to sit open under the table, which put a pair of     -->
+<!-- password boxes permanently on a page whose job is the list above.  -->
+<!-- It is now behind the New account button.                           -->
+<!-- ------------------------------------------------------------------ -->
+<div class="gt-modal" id="m-newuser">
+  <form class="gt-box" method="post">
+    <h3>Create an account</h3>
 
-    <label class="field">E-mail <span class="req"></span>
-      <span class="field-row"><input name="email" type="email"></span></label>
+    <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+    <input type="hidden" name="action" value="create">
 
-    <label class="field">Username <span class="req">*</span>
-      <span class="field-row"><input name="username" required autocapitalize="none"></span></label> 
+    <?php foreach ($createErrors as $msg): ?>
+      <p class="error" style="margin:0 0 12px"><?= e($msg) ?></p>
+    <?php endforeach; ?>
 
-        <input type="hidden" name="role" value="administrator"></span>
-    <label class="field">Role <span class="req">*</span>
-        <span class="field-row">
-        <select name="role" required>
-         <!-- <option value="staff">Staff</option>-->
-          <option value="administrator">Administrator</option>
-        </select>
-      </span></lable>
+    <label class="gt-f">Full name <span class="req">*</span>
+      <input name="name" required value="<?= e($form['name']) ?>">
     </label>
-    <label class="field">Password <span class="req">*</span>
-      <span class="field-row"><input name="password" id="pw" type="text" minlength="8" required
-        value="<?= e('Kenya-' . random_int(100000, 999999)) ?>"></span></label>
-    <label class="field">Repeat password <span class="req">*</span>
-      <span class="field-row"><input name="password2" id="pw2" type="text" minlength="8" required
-        value="<?= e('') ?>"></span></label>
+
+    <label class="gt-f">E-mail
+      <input name="email" type="email" value="<?= e($form['email']) ?>">
+    </label>
+
+    <label class="gt-f">Username <span class="req">*</span>
+      <input name="username" required autocapitalize="none" autocomplete="off"
+             value="<?= e($form['username']) ?>">
+    </label>
+
+    <?php /*
+      The hidden role input that sat above this select has gone. Both were called
+      "role" and both were submitted, so PHP kept whichever came last - it worked,
+      but by accident of ordering rather than by design. One control, one value.
+    */ ?>
+    <label class="gt-f">Role <span class="req">*</span>
+      <select name="role" required>
+        <option value="administrator" <?= $form['role'] === 'administrator' ? 'selected' : '' ?>>Administrator</option>
+        <option value="accounts" <?= $form['role'] === 'accounts' ? 'selected' : '' ?>>Accounts</option>
+      </select>
+    </label>
+
+    <label class="gt-f">Password <span class="req">*</span>
+      <input name="password" id="pw" type="text" minlength="8" required
+             autocomplete="off" value="<?= e($suggested) ?>">
+    </label>
+
+    <label class="gt-f">Repeat password <span class="req">*</span>
+      <input name="password2" id="pw2" type="text" minlength="8" required autocomplete="off">
+    </label>
+
     <ul class="pw-rules" id="pwRules">
       <li data-rule="len">At least 8 characters</li>
       <li data-rule="upper">One capital letter</li>
@@ -178,9 +260,19 @@ layout_back('index.php', 'Back to SG. Certificates');
       <li data-rule="special">One special character (! ? @ # $ % &amp; * - _ etc.)</li>
       <li data-rule="match">Both entries match</li>
     </ul>
-  </fieldset>
-  <button type="submit">Create account</button>
-</form>
+
+    <p class="gt-hint">The password shows as plain text on purpose &mdash; it has to be read
+      out or written down for the person it belongs to. Tell them to change it once they
+      have signed in.</p>
+
+    <div class="gt-foot">
+      <button type="button" class="button secondary gt-close">Cancel</button>
+      <button type="submit" class="button">Create account</button>
+    </div>
+  </form>
+</div>
+
+<?php require_once APP_DIR . '/views/modal_base.php'; ?>
 
 <!--Password Script-->
 <script>
@@ -207,9 +299,13 @@ layout_back('index.php', 'Back to SG. Certificates');
   pw.addEventListener('input', check);
   pw2.addEventListener('input', check);
   check();
+
+  // A create that failed would otherwise come back with the dialog shut and the
+  // reason hidden behind it, which looks like nothing happened at all.
+<?php if ($createErrors): ?>
+  var dlg = document.getElementById('m-newuser');
+  if (dlg) { dlg.classList.add('on'); }
+<?php endif; ?>
 })();
 </script>
-
-<!--<p class="hint">Administrators can reach Settings and can void and amend certificates. Staff can issue, print
-and search. If every administrator is locked out, run <code>php tools/reset_password.php</code> on the server.</p>-->
 <?php layout_bottom(); ?>

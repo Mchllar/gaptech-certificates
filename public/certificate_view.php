@@ -79,6 +79,24 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                     $ref  = strtoupper(trim((string)($_POST['payment_ref'] ?? '')));
                     $note = trim((string)($_POST['payment_note'] ?? ''));
                     $lpo  = trim((string)($_POST['lpo_no'] ?? ''));
+                    $why  = trim((string)($_POST['correction_reason'] ?? ''));
+
+                    // Changing the payment on a released certificate is editing a
+                    // financial record after the fact. The audit trail can already
+                    // show WHAT changed and who did it; without a reason it can
+                    // never show why, and "why" is the only part a manager asking
+                    // about it six months later actually wants.
+                    if ($why === '') {
+                        throw new RuntimeException('Say why the payment details are being '
+                            . 'corrected. It goes on the record with the change.');
+                    }
+
+                    // The same floor approval has: a correction must not quietly
+                    // leave the certificate released against nothing at all.
+                    if ($ref === '' && $lpo === '' && $note === '') {
+                        throw new RuntimeException('A certificate cannot be left with no payment '
+                            . 'reference, no LPO and no message. Record at least one.');
+                    }
 
                     // One payment cannot be on two certificates - the same rule
                     // approval enforces, applied again when it is corrected.
@@ -95,8 +113,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                     q('UPDATE certificates SET payment_ref = ?, payment_note = ?, lpo_no = ?
                         WHERE id = ?', [$ref, $note, $lpo, $id]);
 
+                    // Both sides of every field, not just the reference. A trail
+                    // that records the new value alone cannot answer "what did it
+                    // say before?", which is the first question anybody asks.
                     audit('update_payment', 'certificate', $id, [
-                        'was' => $target['payment_ref'], 'now' => $ref, 'lpo_no' => $lpo,
+                        'reason'   => $why,
+                        'ref_was'  => (string)$target['payment_ref'],
+                        'ref_now'  => $ref,
+                        'lpo_was'  => (string)($target['lpo_no'] ?? ''),
+                        'lpo_now'  => $lpo,
+                        'note_changed' => trim((string)$target['payment_note']) !== $note,
                     ]);
                     flash('Payment details updated.');
                     redirect('certificate_view.php?id=' . $id);
@@ -157,6 +183,21 @@ if ($approved && !$live && !$voided && function_exists('certificate_current_for_
     }
 }
 
+// Renewing and withdrawing belong to the certificate that is actually in force.
+//
+//   voided      already withdrawn; there is nothing left to take back
+//   superseded  a renewal has already replaced it
+//   replaced    a newer certificate is in force even if this row still says issued
+//
+// Renewing a replaced certificate would raise a renewal of the wrong one, and
+// withdrawing it would withdraw a certificate that stopped mattering months ago -
+// while leaving the one that does matter untouched.
+//
+// Expired is deliberately NOT in that list. A lapsed vehicle coming back is the
+// ordinary way a renewal starts, so an expired certificate keeps its Renew button.
+$superseded = ($cert['status'] ?? '') === 'superseded';
+$inForce    = $approved && !$voided && !$superseded && !$replacement;
+
 /** Snapshot first, live row second: what was printed beats what has changed since. */
 $snap = function (array $path, $fallback = '') use ($d) {
     $at = $d;
@@ -199,17 +240,41 @@ layout_back('index.php', 'Back to certificates');
 <?php endif; ?>
 
 <!-- ------------------------------------------------------------------ -->
-<!-- The certificate                                                    -->
+<!-- Details                                                            -->
+<!--                                                                    -->
+<!-- One table, the way the tracking module does it, rather than three  -->
+<!-- under Certificate / Client / Vehicle and governor. The headings    -->
+<!-- were costing three scroll-stops to read nine facts, and the        -->
+<!-- groupings were ours rather than anything the reader needed: nobody -->
+<!-- opens this page wondering "what do we know about the client" - they -->
+<!-- open it to check one value.                                        -->
+<!--                                                                    -->
+<!-- Vehicle first, because that is what the page is looked up by.      -->
+<!-- Status is not a row: it is already the pill beside the heading.    -->
+<!-- A rejected certificate hides the dates that never came into effect.-->
 <!-- ------------------------------------------------------------------ -->
-<h2>Certificate</h2>
 <table class="details">
-  <tr><th>Type</th><td><?= e($snap(['cert', 'type'], $cert['type'])) ?></td>
-      <th>Status</th><td><?= e($status) ?></td></tr>
-  <tr><th>Issued</th><td><?= e(fmt_date($cert['issue_date'])) ?></td>
-      <th>Expires</th><td><?= e(fmt_date($cert['expiry_date'])) ?></td></tr>
+  <tr><th>Vehicle</th><td><?= e($snap(['vehicle', 'reg_no'], $cert['reg_no'])) ?></td>
+      <th>Make</th><td><?= e($snap(['vehicle', 'make'], $cert['make'])) ?></td></tr>
+  <tr><th>Chassis no.</th><td><?= e($snap(['vehicle', 'chassis_no'], $cert['chassis_no'])) ?></td>
+      <!-- <th>Set speed</th>
+      <td><?= e($snap(['device', 'set_speed_kmh'], $cert['set_speed_kmh'])) ?> km/h</td></tr> -->
+  <!-- <tr><th>Governor</th><td><?= e($snap(['device', 'model'], $cert['device_model'])) ?></td> -->
+      <th>Serial no.</th><td><?= e($snap(['device', 'serial_no'], $cert['serial_no'])) ?></td></tr>
+  <tr><th>Customer</th><td><?= e($snap(['client', 'name'], $cert['client_name'])) ?></td>
+      <th>Contact</th><td><?= e($snap(['client', 'phone'], $cert['client_phone'])) ?></td></tr>
+  <!-- <tr><th>Address</th><td><?= e($snap(['client', 'address'], $cert['client_address'])) ?></td> -->
+  <tr><th>Installed</th><td><?= e($snap(['installation', 'installed_on_fmt'], '—')) ?></td>
+      <!-- <th>Technician</th><td><?= e($snap(['installation', 'technician'], '—')) ?></td></tr> -->
+  <?php if (!$rejected): ?>
+    <!-- <tr><th>Issued</th><td><?= e(fmt_date($cert['issue_date'])) ?></td> -->
+        <th>Expires</th><td><?= e(fmt_date($cert['expiry_date'])) ?></td></tr>
+  <?php endif; ?>
   <tr><th>Raised by</th><td><?= e($cert['issued_by_name'] ?? '—') ?></td>
       <th>Raised on</th>
       <td><?= e(fmt_date(substr((string)($cert['issued_at'] ?? $cert['issue_date']), 0, 10))) ?></td></tr>
+        <tr><th>Type</th><td><?= e($snap(['cert', 'type'], $cert['type'])) ?></td></tr>
+
   <?php if ($approved): ?>
     <tr><th>Released by</th><td><?= e($cert['decided_by_name'] ?? '—') ?></td>
         <th>Released on</th>
@@ -217,40 +282,64 @@ layout_back('index.php', 'Back to certificates');
   <?php endif; ?>
 </table>
 
-<h2>Client</h2>
-<table class="details">
-  <tr><th>Name</th><td colspan="3"><?= e($snap(['client', 'name'], $cert['client_name'])) ?></td></tr>
-  <tr><th>Contact</th><td><?= e($snap(['client', 'phone'], $cert['client_phone'])) ?></td>
-      <th>Address</th><td><?= e($snap(['client', 'address'], $cert['client_address'])) ?></td></tr>
-</table>
-
-<h2>Vehicle and governor</h2>
-<table class="details">
-  <tr><th>Registration</th><td><?= e($snap(['vehicle', 'reg_no'], $cert['reg_no'])) ?></td>
-      <th>Make</th><td><?= e($snap(['vehicle', 'make'], $cert['make'])) ?></td></tr>
-  <tr><th>Chassis no.</th><td><?= e($snap(['vehicle', 'chassis_no'], $cert['chassis_no'])) ?></td>
-      <th>Set speed</th>
-      <td><?= e($snap(['device', 'set_speed_kmh'], $cert['set_speed_kmh'])) ?> km/h</td></tr>
-  <tr><th>Governor</th><td><?= e($snap(['device', 'model'], $cert['device_model'])) ?></td>
-      <th>Serial no.</th><td><?= e($snap(['device', 'serial_no'], $cert['serial_no'])) ?></td></tr>
-  <tr><th>Installed</th><td><?= e($snap(['installation', 'installed_on_fmt'], '—')) ?></td>
-      <th>Technician</th><td><?= e($snap(['installation', 'technician'], '—')) ?></td></tr>
-</table>
-
 <!-- ------------------------------------------------------------------ -->
 <!-- Payment - only once there is something to show                      -->
 <!-- ------------------------------------------------------------------ -->
-<?php if ($hasPayment && !$rejected): ?>
+<?php
+// ---------------------------------------------------------------------------
+// Only the facts that exist get a cell.
+//
+// A payment is recorded one of two ways - money that arrived, or an LPO promising
+// it later - and most certificates have exactly one of them. The table used to
+// reserve a column for each regardless, so an M-Pesa payment showed "LPO —" and an
+// LPO payment showed "Reference —". An em dash next to a label reads as a value
+// that is missing rather than one that was never expected, and on a payment record
+// that is the wrong thing to make somebody wonder about.
+//
+// So the row is built from what is actually there and laid out two to a line, the
+// way the tracking page does it. The message is a View link rather than the whole
+// M-Pesa text inline, because that text is long enough to push the certificate's
+// own buttons off the screen.
+// ---------------------------------------------------------------------------
+$payRef  = trim((string)$cert['payment_ref']);
+$payLpo  = trim((string)($cert['lpo_no'] ?? ''));
+$payNote = trim((string)$cert['payment_note']);
+
+$payCells = [];
+if ($payRef !== '')  { $payCells[] = ['Reference', e($payRef)]; }
+if ($payLpo !== '')  { $payCells[] = ['LPO', e($payLpo)]; }
+if ($payNote !== '') { $payCells[] = ['Message', '<a href="#" data-modal="#m-note">View</a>']; }
+?>
+<?php if ($hasPayment && !$rejected && $payCells): ?>
   <h2>Payment</h2>
   <table class="details">
-    <tr><th>Reference</th>
-        <td><?= trim((string)$cert['payment_ref']) !== '' ? e($cert['payment_ref']) : '&mdash;' ?></td>
-        <th>LPO</th>
-        <td><?= trim((string)($cert['lpo_no'] ?? '')) !== '' ? e($cert['lpo_no']) : '&mdash;' ?></td></tr>
-    <?php if (trim((string)$cert['payment_note']) !== ''): ?>
-      <tr><th>Message</th><td colspan="3"><?= nl2br(e($cert['payment_note'])) ?></td></tr>
-    <?php endif; ?>
+    <?php foreach (array_chunk($payCells, 2) as $pair): ?>
+      <tr>
+        <th><?= e($pair[0][0]) ?></th>
+        <?php if (count($pair) === 2): ?>
+          <td><?= $pair[0][1] ?></td>
+          <th><?= e($pair[1][0]) ?></th><td><?= $pair[1][1] ?></td>
+        <?php else: ?>
+          <td colspan="3"><?= $pair[0][1] ?></td>
+        <?php endif; ?>
+      </tr>
+    <?php endforeach; ?>
   </table>
+
+  <?php if ($payNote !== ''): ?>
+    <div class="gt-modal" id="m-note">
+      <div class="gt-box">
+        <h3>Payment message</h3>
+        <p class="gt-hint">Exactly as it was pasted in. The reference is read out of this,
+          so the two cannot disagree.</p>
+        <p class="gt-msg"><?= nl2br(e($payNote)) ?></p>
+        <div class="gt-foot">
+          <button type="button" class="button secondary gt-close">Close</button>
+        </div>
+      </div>
+    </div>
+    <?php require_once APP_DIR . '/views/modal_base.php'; ?>
+  <?php endif; ?>
 
   <?php if ($isAcc && $approved): ?>
     <details class="pay-correct">
@@ -258,20 +347,41 @@ layout_back('index.php', 'Back to certificates');
       <form method="post" class="card-form">
         <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
         <input type="hidden" name="id" value="<?= (int)$cert['id'] ?>">
-        <label class="field">Payment reference
-          <span class="field-row">
-            <input name="payment_ref" maxlength="40" style="text-transform:uppercase"
-                   value="<?= e((string)$cert['payment_ref']) ?>"></span></label>
         <label class="field">LPO number
           <span class="field-row">
             <input name="lpo_no" maxlength="60" style="text-transform:uppercase"
                    value="<?= e((string)($cert['lpo_no'] ?? '')) ?>"></span></label>
-        <label class="field" style="width:100%">Message
+        <label class="field" style="width:100%"> Payment Message
           <span class="field-row">
             <textarea name="payment_note" rows="2"
               style="width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:6px;
                      font-family:inherit; font-size:14px; resize:vertical"><?= e((string)$cert['payment_note']) ?></textarea>
           </span></label>
+          <label class="field">Payment reference
+            <span class="field-row">
+              <input name="payment_ref" maxlength="40" style="text-transform:uppercase"
+                    value="<?= e((string)$cert['payment_ref']) ?>"></span></label>
+ 
+
+
+        <?php /*
+          Required here and checked again on the server. The browser's own
+          "required" is a convenience; the handler is what actually enforces it,
+          because a form can be submitted without one.
+
+          Deliberately not pre-filled and not remembered between corrections: a
+          reason carried over from last time is worse than none, because it reads
+          as an explanation of this change when it explains a different one.
+        */ ?>
+        <label class="field" style="width:100%">Reason for the correction <span class="req">*</span>
+          <span class="field-row">
+            <input name="correction_reason" required maxlength="200"
+                   placeholder="e.g. reference was mistyped, client paid after the LPO was raised">
+          </span>
+          <span class="field-hint">Goes on the record with the change, alongside what it
+            was before and who changed it.</span>
+        </label>
+
         <button type="submit" name="action" value="update_pay" class="secondary">Save the correction</button>
       </form>
     </details>
@@ -282,16 +392,16 @@ layout_back('index.php', 'Back to certificates');
 <!-- Accounts: release or send back                                      -->
 <!-- ------------------------------------------------------------------ -->
 <?php if ($isAcc && $pending): ?>
-  <h2>Release this certificate</h2>
+  <h2>Issue certificate</h2>
 
   <p class="hint" style="text-align:left">
-    An administrator has raised this. Releasing it gives it a number and the client
+    An administrator has raised this. Issuing it gives it a serial number and the client
     can download it straight away. Look at it first &mdash; the preview is the sheet
     exactly as it will print.
   </p>
-
+<!-- 
   <p><a class="button secondary" target="_blank"
-        href="certificate_print.php?id=<?= (int)$cert['id'] ?>">Preview the certificate</a></p>
+        href="certificate_print.php?id=<?= (int)$cert['id'] ?>">Preview the certificate</a></p> -->
 
   <form method="post" class="card-form">
     <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
@@ -302,8 +412,8 @@ layout_back('index.php', 'Back to certificates');
 
       <?php if ($hasPayment): ?>
         <p class="hint" style="text-align:left; margin:0 0 12px; color:#8A5A00">
-          The administrator recorded this when they raised it. Check it before
-          releasing &mdash; nobody in accounts has looked at it yet.</p>
+          The administrator recorded this when they raised it. Confirm it before
+          releasing.</p>
       <?php endif; ?>
 
       <label class="field" style="width:100%">Payment message
@@ -349,55 +459,96 @@ layout_back('index.php', 'Back to certificates');
   </form>
 <?php endif; ?>
 
-<!-- ------------------------------------------------------------------ -->
-<!-- What anyone can do with it                                          -->
-<!-- ------------------------------------------------------------------ -->
-<h2>The certificate itself</h2>
+<?php
 
-<p class="actions">
+$showCertActions = $isAdm || !$rejected;
+?>
+<?php if ($showCertActions): ?>
+
+<div class="row-actions" style="margin-top:22px; display:flex; flex-wrap:wrap; align-items:center; gap:10px">
   <?php if ($live): ?>
     <a class="button" target="_blank"
        href="certificate_print.php?id=<?= (int)$cert['id'] ?>&amp;print=1">Print</a>
     <a class="button secondary"
        href="certificate_print.php?id=<?= (int)$cert['id'] ?>&amp;download=1">Download PDF</a>
   <?php elseif (!$rejected): ?>
-    <a class="button secondary" target="_blank"
-       href="certificate_print.php?id=<?= (int)$cert['id'] ?>">View on screen</a>
-    <span class="hint">
-      <?= $pending
-            ? 'It cannot be printed or downloaded until accounts release it.'
-            : 'This certificate is not current, so it is view-only.' ?>
-    </span>
-  <?php else: ?>
-    <span class="hint">A certificate that has been sent back has no number and cannot be printed.</span>
+    <?php if ($isAdm): ?>
+      <a class="button secondary" target="_blank"
+         href="certificate_print.php?id=<?= (int)$cert['id'] ?>">View (<?= e(strtolower($status)) ?>)</a>
+    <?php endif; ?>
+    <?php /*
+      Administrators only. These lines explain the state of the certificate to the
+      person waiting on somebody else to act - and for accounts that somebody else
+      is themselves. "It cannot be printed until accounts release it" told to
+      accounts is both redundant and faintly absurd, and the Release panel is
+      directly below it saying the same thing in a form they can actually use.
+    */ ?>
+    <?php if ($isAdm): ?>
+      <span class="hint" style="margin:0">
+        <?= $pending
+              ? 'It cannot be printed or downloaded until accounts release it.'
+              : 'This certificate is not current, so it is view-only.' ?>
+      </span>
+    <?php endif; ?>
+  <?php elseif ($isAdm): ?>
+    <span class="hint" style="margin:0">A certificate that has been sent back has no number
+      and cannot be printed.</span>
   <?php endif; ?>
-
-  <?php if ($isAdm && $approved && !$voided): ?>
-    <button type="button" class="link-button renew-open"
+ 
+  <?php if ($isAdm && $inForce): ?>
+    <button type="button" class="button renew-open"
             data-id="<?= (int)$cert['id'] ?>"
             data-reg="<?= e((string)$cert['reg_no']) ?>"
             data-cert="<?= e((string)$cert['number']) ?>"
-            data-client="<?= e((string)$cert['client_name']) ?>">Renew</button>
+            data-client="<?= e((string)$cert['client_name']) ?>">Renew certificate</button>
+    <button type="button" class="button danger" data-modal="#m-void">Withdraw</button>
   <?php endif; ?>
-</p>
+</div>
+<?php endif; ?>
+ 
+<?php if ($isAdm && $inForce): ?>
+<?php /*
+  Withdrawing used to be a form sitting open at the bottom of the page behind a
+  browser confirm(). Two problems with that: a destructive action does not belong
+  permanently on screen underneath Print and Download, and confirm() asks "are you
+  sure" AFTER the reason has been typed, which is the wrong order and looks nothing
+  like the rest of the system.
 
-<?php if ($isAdm && !$voided && $approved): ?>
-  <h2>Withdraw</h2>
-  <p class="hint" style="text-align:left">
-    For a certificate that should never have gone out, or a vehicle whose governor
-    has been removed. The record is kept and verification will say it was withdrawn
-    &mdash; a voided certificate may still be in somebody&rsquo;s glovebox, and an
-    officer checking it deserves an answer rather than &ldquo;not found&rdquo;.
-    This is not how a certificate is replaced; a renewal does that on its own.
-  </p>
-  <form method="post" class="reject-form"
-        onsubmit="return confirm('Withdraw certificate <?= e($label) ?>? This cannot be undone.');">
+  It is now the same dialog as everything else, and the reason is typed inside it.
+  The reason is required by the form AND by void_certificate(), so neither the
+  screen nor the server will take a withdrawal without one.
+*/ ?>
+<div class="gt-modal" id="m-void">
+  <form class="gt-box" method="post">
+    <h3>Withdraw <?= e($label) ?></h3>
+
     <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
     <input type="hidden" name="id" value="<?= (int)$cert['id'] ?>">
-    <label>Reason <input name="reason" required
-           placeholder="e.g. vehicle sold, governor removed"></label>
-    <button type="submit" name="action" value="void" class="danger">Withdraw it</button>
+
+    <p class="gt-hint">
+      For a certificate that should never have gone out, or a vehicle whose governor
+      has been removed. The record is kept and verification will say it was withdrawn
+      &mdash; a voided certificate may still be in somebody&rsquo;s glovebox, and an
+      officer checking it deserves an answer rather than &ldquo;not found&rdquo;.
+    </p>
+    <p class="gt-hint"><strong>This is not how a certificate is replaced.</strong>
+      A renewal supersedes the old one on its own, and cannot be undone here.</p>
+
+    <table class="details" style="margin:0 0 14px">
+      <tr><th>Vehicle</th><td><?= e((string)$cert['reg_no']) ?></td>
+          <th>Customer</th><td><?= e((string)$cert['client_name']) ?></td></tr>
+    </table>
+
+    <label class="gt-f">Reason <span class="req">*</span>
+      <input name="reason" required placeholder="e.g. vehicle sold, governor removed">
+    </label>
+
+    <div class="gt-foot">
+      <button type="button" class="button secondary gt-close">Cancel</button>
+      <button type="submit" name="action" value="void" class="button danger">Withdraw it</button>
+    </div>
   </form>
+</div>
 <?php endif; ?>
 
 <style>
@@ -408,8 +559,7 @@ layout_back('index.php', 'Back to certificates');
     padding: 6px 0;
   }
   .pay-correct[open] summary { margin-bottom: 10px; }
-  .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-  .actions .hint { margin: 0; }
+  /* .actions is gone: the button bar is .row-actions now, matching tracking. */
 </style>
 
 <?php if ($isAdm): ?>

@@ -67,7 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 
-layout_top('Change password', $me ? 'staff' : 'public');
+layout_top('', $me ? 'staff' : 'public');
 layout_back($me['role'] === 'accounts' ? 'approvals.php' : 'index.php', 'Back to SG. Certificates');
 ?>
 <style>

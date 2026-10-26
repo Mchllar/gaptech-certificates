@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!$isAcc) {
                     throw new RuntimeException('Approving and recording payments is for accounts.');
                 }
-            } elseif ($action === 'void' || $action === 'renew') {
+            } elseif ($action === 'void' || $action === 'renew' || $action === 'remove_unit') {
                 if (!$isAdm) {
                     throw new RuntimeException('That action is for administrators.');
                 }
@@ -80,6 +80,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } elseif ($action === 'void') {
                 void_tracking_cert($target, $user, (string)($_POST['reason'] ?? ''));
                 flash('Certificate ' . tracking_label($target) . ' is now void.');
+                redirect('tracking_view.php?id=' . $id);
+
+            } elseif ($action === 'remove_unit') {
+                $done = remove_tracking_unit($target, $user,
+                    (string)($_POST['reason'] ?? ''),
+                    (string)($_POST['removed_on'] ?? ''));
+                flash('Unit ' . $target['imei'] . ' recorded as removed from ' . $target['reg_no']
+                    . ' on ' . fmt_date((string)$done['removed_on'])
+                    . '. The vehicle is no longer covered, and the unit can now be fitted'
+                    . ' to another vehicle.');
                 redirect('tracking_view.php?id=' . $id);
 
             } elseif ($action === 'renew') {
@@ -160,6 +170,19 @@ layout_back('tracking_list.php', 'Back to installations');
   <p class="error">Voided: <?= e((string)$cert['void_reason']) ?></p>
 <?php endif; ?>
 
+<?php if (($cert['status'] ?? '') === 'removed'): ?>
+  <?php /*
+    Deliberately not styled as an error. Nothing went wrong here: the certificate
+    did its job for the months it covered, and the unit has since come off.
+  */ ?>
+  <p class="hint" style="text-align:left">
+    <strong>Unit removed on <?= e(fmt_date((string)$cert['removed_on'])) ?></strong>
+    &mdash; <?= e((string)$cert['removed_reason']) ?>.
+    The vehicle is no longer covered. Cover would otherwise have run to
+    <?= e(fmt_date($cert['expiry_date'])) ?>.
+  </p>
+<?php endif; ?>
+
 <?php if ($replacement): ?>
   <p class="hint" style="text-align:left">
     <?= $cert['status'] === 'superseded' ? 'Replaced by' : 'The current certificate for this vehicle is' ?>
@@ -190,7 +213,7 @@ layout_back('tracking_list.php', 'Back to installations');
   <tr><th>Subscription</th><td><?= e(fmt_date($cert['subscription_date'])) ?></td>
       <th>Expires</th><td><?= e(fmt_date($cert['expiry_date'])) ?></td></tr>
   <?php endif; ?>
-  <tr><th>Raised by</th><td style="text-transform: uppercase;"><?= e((string)$cert['issued_by_name']) ?></td>
+  <tr><th>Raised by</th><td><?= e((string)$cert['issued_by_name']) ?></td>
       <th>Raised on</th><td><?= e(fmt_date(substr((string)$cert['issued_at'], 0, 10))) ?></td></tr>
   <?php if ($approved): ?>
   <tr><th>Approved by</th><td><?= e((string)$cert['decided_by_name']) ?></td>
@@ -296,11 +319,15 @@ layout_back('tracking_list.php', 'Back to installations');
         View (<?= e(strtolower($status)) ?>)</a>
     <?php endif; ?>
 
-    <?php if ($approved && $cert['status'] !== 'voided'): ?>
-      <button class="button renew-open" type="button">Renew subscription</button>
-    <?php endif; ?>
+    <?php /*
+      A removed certificate offers neither renewal nor removal: there is no unit
+      in the vehicle to renew a subscription for, and nothing left to take out.
+    */ ?>
+    <?php $liveUnit = $approved && !in_array($cert['status'], ['voided', 'removed'], true); ?>
 
-    <?php if ($approved && $cert['status'] !== 'voided'): ?>
+    <?php if ($liveUnit): ?>
+      <button class="button renew-open" type="button">Renew subscription</button>
+      <button class="button secondary remove-open" type="button">Record unit removal</button>
       <button class="button danger void-open" type="button">Void</button>
     <?php endif; ?>
 
@@ -381,6 +408,47 @@ layout_back('tracking_list.php', 'Back to installations');
   </form>
 </div>
 
+<div class="trk-modal" id="m-remove">
+  <form class="trk-box" method="post">
+    <h3>Record unit removal</h3>
+    <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+    <input type="hidden" name="id" value="<?= (int)$cert['id'] ?>">
+
+    <p class="trk-hint">For a tracker that has come off the vehicle &mdash; usually
+      recovered by GAPTECH after the vehicle was repossessed. The certificate stays
+      on record and says the unit was removed, rather than pretending it was issued
+      in error.</p>
+
+    <table class="details" style="margin:0 0 14px">
+      <tr><th>Vehicle</th><td><?= e($cert['reg_no']) ?></td>
+          <th>Unit</th><td><?= e((string)$cert['imei']) ?></td></tr>
+      <tr><th>Customer</th><td><?= e($cert['client_name']) ?></td>
+          <th>Cover ran to</th><td><?= e(fmt_date($cert['expiry_date'])) ?></td></tr>
+    </table>
+
+    <label class="trk-f">Date removed <span class="req">*</span>
+      <input type="date" name="removed_on" required
+             value="<?= e(date('Y-m-d')) ?>"
+             min="<?= e((string)$cert['installed_on']) ?>" max="<?= e(date('Y-m-d')) ?>">
+    </label>
+
+    <label class="trk-f">Reason <span class="req">*</span>
+      <input name="reason" required
+             placeholder="e.g. vehicle repossessed by financier, unit recovered">
+    </label>
+
+    <p class="trk-hint"><strong>The vehicle stops being covered from that date</strong>,
+      and drops out of the renewal lists and the dashboard. Any subscription time left
+      ends here &mdash; it belonged to this customer, and the next one buys their own.
+      Once recorded, the unit can be fitted to another vehicle.</p>
+
+    <div class="trk-foot">
+      <button type="button" class="button secondary trk-close">Cancel</button>
+      <button type="submit" name="action" value="remove_unit" class="button">Record the removal</button>
+    </div>
+  </form>
+</div>
+
 <div class="trk-modal" id="m-void">
   <form class="trk-box" method="post">
     <h3>Void <?= e(tracking_label($cert)) ?></h3>
@@ -443,7 +511,8 @@ layout_back('tracking_list.php', 'Back to installations');
   }
 
   var opens = [['.pay-view', '#m-note'], ['.pay-edit', '#m-pay'],
-               ['.renew-open', '#m-renew'], ['.void-open', '#m-void']];
+               ['.renew-open', '#m-renew'], ['.void-open', '#m-void'],
+               ['.remove-open', '#m-remove']];
   opens.forEach(function (pair) {
     document.querySelectorAll(pair[0]).forEach(function (btn) {
       btn.addEventListener('click', function (ev) { ev.preventDefault(); open(pair[1]); });

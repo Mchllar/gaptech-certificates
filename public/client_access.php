@@ -70,7 +70,7 @@ function login_link(array $overrides = []): string
 // Only reopen when a save came back with something to fix.
 $openCreds = !empty($_GET['open']);
 
-layout_top('Client Portal Access');
+layout_top('');
 layout_back('index.php', 'Back to SG. Certificates');
 ?>
 <style>

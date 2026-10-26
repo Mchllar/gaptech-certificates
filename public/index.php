@@ -109,10 +109,23 @@ $expiring = q("SELECT c.id, c.number, c.expiry_date, v.reg_no, cl.name AS client
                ORDER BY c.expiry_date")->fetchAll();
 }
 
-layout_top('Speed Governor Installations');
+layout_top('');
 ?>
-<!-- <h1>Governor Installations</h1> -->
-<p class="page-intro">Search, filter and review the speed governor certificates.</p>
+<style>
+    .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+        /* ---- a little wider once there is room ---- */
+    .vfy h1.vfy-title {
+        margin: 0 0 6px;
+        font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+        line-height: 1.25; color: #0D4F72;
+        padding-left: 12px; border-left: 4px solid #8CC63F;
+    }
+    @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+    .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5;}
+</style>
+<div class="vfy">
+<h1 class="vfy-title">Governor Installations</h1>
+<p class="vfy-sub">Search, filter and review the speed governor certificates.</p>
 
 <?php if ((int)$counts['pending_count'] > 0): ?>
   <p class="hint" style="text-align:left">
@@ -133,16 +146,16 @@ layout_top('Speed Governor Installations');
     <a class="button" href="certificate_new.php">New certificate</a>
   <?php endif; ?>
 </form>
-
+  </div>
 <div class="filters">
   <?php foreach ([
       'all' => ['All', $counts['all_count']],
       'pending' => ['Pending', $counts['pending_count']],
       'valid' => ['Valid', $counts['valid_count']],
       'expired' => ['Expired', $counts['expired_count']],
-      'superseded' => ['Superseded', $counts['superseded_count']],
+      'superseded' => ['Replaced', $counts['superseded_count']],
       'rejected' => ['Rejected', $counts['rejected_count']],
-      'voided' => ['Voided', $counts['voided_count']],
+      'voided' => ['Withdrawn', $counts['voided_count']],
   ] as $key => $info): ?>
     <a class="chip <?= $status === $key ? 'chip-on' : '' ?>"
        href="<?= e(page_link(['status' => $key, 'page' => 1])) ?>">
@@ -200,8 +213,7 @@ layout_top('Speed Governor Installations');
 </div>
 
 <?php if ($isAdm): ?>
-   
-<h2 style="color: #1d5a16 ; margin-bottom: 10px;">Expiring in the next 30 days</h2>
+<h2>Expiring in the next 30 days</h2>
 <table>
   <tr><th>Expires</th><th>No.</th><th>Vehicle</th><th>Customer</th><th></th></tr>
   <?php foreach ($expiring as $row): ?>
@@ -210,10 +222,29 @@ layout_top('Speed Governor Installations');
     <td><?= e((string)$row['number']) ?></td>
     <td><?= e($row['reg_no']) ?></td>
     <td><?= e($row['client_name']) ?></td>
-    <td><a href="certificate_new.php?reg=<?= urlencode($row['reg_no']) ?>">Renew</a></td>
+    <td>
+      <?php /*
+        This used to link to certificate_new.php?reg=..., which opened a blank New
+        Certificate form with only the registration filled in. That was not a
+        renewal. It asked somebody to retype the customer, chassis, governor model
+        and serial from memory; a single typo in the registration created a SECOND
+        vehicle rather than renewing the first; and the old certificate was never
+        superseded, so both ran side by side.
+
+        It now opens the same dialog as the certificate page, and renew.php takes
+        every detail from the old certificate's snapshot.
+      */ ?>
+      <button type="button" class="link-button renew-open"
+              data-id="<?= (int)$row['id'] ?>"
+              data-reg="<?= e($row['reg_no']) ?>"
+              data-client="<?= e($row['client_name']) ?>"
+              data-cert="<?= e((string)$row['number']) ?>">Renew</button>
+    </td>
   </tr>
   <?php endforeach; ?>
   <?php if (!$expiring): ?><tr><td colspan="5">Nothing due in the next 30 days.</td></tr><?php endif; ?>
 </table>
+
+<?php require APP_DIR . '/views/renew_modal.php'; ?>
 <?php endif; ?>
 <?php layout_bottom(); ?>
