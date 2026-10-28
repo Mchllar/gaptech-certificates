@@ -63,11 +63,11 @@ if ($client) {
 
 // ------------------------------------------------------------ who may download
 
-if ($download && $user && $user['role'] !== 'administrator') {
-    http_response_code(403);
-    exit('Downloading a certificate is for administrators. You are signed in as '
-        . e($user['role']) . '.');
-}
+// if ($download && $user && $user['role'] !== 'administrator') {
+//     http_response_code(403);
+//     exit('Downloading a certificate is for administrators. You are signed in as '
+//         . e($user['role']) . '.');
+// }
 
 // Nothing that is pending, rejected, expired, superseded or void leaves the building.
 // Staff may still look at it on screen - that is how it gets checked.

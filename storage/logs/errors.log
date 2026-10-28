@@ -186,3 +186,33 @@ C:\xampp\htdocs\gaptech-certificates\app\bootstrap.php:94
 #1 C:\xampp\htdocs\gaptech-certificates\public\renew.php(67): q('UPDATE certific...', Array)
 #2 {main}
 
+2026-10-27 14:04:51  [1566E1]  /gaptech-certificates/public/index.php
+Failed opening required 'C:\xampp\htdocs\gaptech-certificates\app/clients.php' (include_path='C:\xampp\php\PEAR')
+C:\xampp\htdocs\gaptech-certificates\app\certificates.php:6
+#0 C:\xampp\htdocs\gaptech-certificates\public\index.php(4): require()
+#1 {main}
+
+2026-10-27 14:04:53  [8805DA]  /gaptech-certificates/public/index.php
+Failed opening required 'C:\xampp\htdocs\gaptech-certificates\app/clients.php' (include_path='C:\xampp\php\PEAR')
+C:\xampp\htdocs\gaptech-certificates\app\certificates.php:6
+#0 C:\xampp\htdocs\gaptech-certificates\public\index.php(4): require()
+#1 {main}
+
+2026-10-27 14:05:39  [4F052B]  /gaptech-certificates/public/index.php
+Failed opening required 'C:\xampp\htdocs\gaptech-certificates\app/clients.php' (include_path='C:\xampp\php\PEAR')
+C:\xampp\htdocs\gaptech-certificates\app\certificates.php:6
+#0 C:\xampp\htdocs\gaptech-certificates\public\index.php(4): require()
+#1 {main}
+
+2026-10-27 14:05:43  [18C010]  /gaptech-certificates/public/index.php
+Failed opening required 'C:\xampp\htdocs\gaptech-certificates\app/clients.php' (include_path='C:\xampp\php\PEAR')
+C:\xampp\htdocs\gaptech-certificates\app\certificates.php:6
+#0 C:\xampp\htdocs\gaptech-certificates\public\index.php(4): require()
+#1 {main}
+
+2026-10-27 14:05:44  [3642FF]  /gaptech-certificates/public/index.php
+Failed opening required 'C:\xampp\htdocs\gaptech-certificates\app/clients.php' (include_path='C:\xampp\php\PEAR')
+C:\xampp\htdocs\gaptech-certificates\app\certificates.php:6
+#0 C:\xampp\htdocs\gaptech-certificates\public\index.php(4): require()
+#1 {main}
+

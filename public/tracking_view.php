@@ -143,8 +143,8 @@ if ($approved && !$live) {
     }
 }
 
-layout_top('Installation ' . tracking_label($cert));
-layout_back('tracking_list.php', 'Back to installations');
+layout_top('');
+layout_back('tracking_list.php', 'Back to Tracker Installations');
 ?>
 <h1><?= e(tracking_label($cert)) ?>
   <span class="status-pill status-<?= e(strtolower(str_replace(' ', '-', $status))) ?>">
@@ -203,12 +203,27 @@ layout_back('tracking_list.php', 'Back to installations');
       <?php $vwImeis = tracking_imeis((int)$cert['id']); ?>
       <th>Track IMEI<?= count($vwImeis) > 1 ? 's' : '' ?></th>
       <td><?= e($vwImeis ? implode(' / ', $vwImeis) : (string)$cert['imei']) ?></td></tr>
-  <tr><th>Customer</th><td><?= e($cert['client_name']) ?></td>
-      <th>Contact</th><td><?= e($cert['client_phone']) ?></td></tr>
   <tr><th>Ownership</th><td><?= e($cert['ownership']) ?></td>
-      <th>Financier</th><td><?= e($cert['financier'] !== '' ? $cert['financier'] : '—') ?></td></tr>
-  <tr><th>Installed</th><td><?= e(fmt_date($cert['installed_on'])) ?></td>
+      <th>Contact</th><td><?= e($cert['client_phone']) ?></td></tr>
+  <tr>
+      <th>Financier</th><td><?= e($cert['financier'] !== '' ? $cert['financier'] : '—') ?></td>
+    <th>Installed on</th><td colspan="3"><?= e(fmt_date($cert['installed_on'])) ?></td></tr>
+  <?php /*
+    "Signed by" is who signs the issued certificate. A certificate with no serial
+    number has not been issued - it takes its number when accounts confirm the
+    payment - so nobody has signed anything yet, and printing a signatory beside a
+    pending or rejected one claims something that has not happened.
+ 
+    The cell is not simply dropped: this table is four columns wide, and a row
+    with two cells in it comes out short with the column rule bending round it.
+    The installed date spans the row instead.
+  */ ?>
+  <?php if ($approved): ?>
+  <tr><th>Installed on</th><td><?= e(fmt_date($cert['installed_on'])) ?></td>
       <th>Signed by</th><td><?= e($cert['signed_by']) ?></td></tr>
+  <?php else: ?>
+
+  <?php endif; ?>
   <?php if (!$rejected): ?>
   <tr><th>Subscription</th><td><?= e(fmt_date($cert['subscription_date'])) ?></td>
       <th>Expires</th><td><?= e(fmt_date($cert['expiry_date'])) ?></td></tr>

@@ -61,7 +61,9 @@ if (pdf_engine() === null) {
 }
 
 echo 'engine   : ' . pdf_engine_label() . "\n";
-echo 'base_url : ' . pdf_base_url() . "\n";
+// The address the server uses to talk to ITSELF, which is not $config['base_url'].
+// See the note on pdf_base_url().
+echo 'renders  : ' . pdf_base_url() . "\n";
 echo str_repeat('-', 64) . "\n";
 
 // Apache has to be up, because the renderer fetches the certificate over HTTP.
@@ -69,8 +71,10 @@ $probe = @file_get_contents(pdf_base_url() . 'pdf_sheet.php', false,
     stream_context_create(['http' => ['timeout' => 5, 'ignore_errors' => true]]));
 if ($probe === false) {
     echo "Cannot reach " . pdf_base_url() . "\n\n"
-       . "Start Apache in the XAMPP control panel, and check base_url points at the\n"
-       . "folder your site is in. The renderer fetches each certificate over HTTP.\n";
+       . "Start Apache in the XAMPP control panel. The renderer fetches each\n"
+       . "certificate over HTTP from this machine, on 127.0.0.1. If Apache only\n"
+       . "answers on some other address, set 'internal_url' in config.php to one\n"
+       . "that reaches this site from this machine.\n";
     exit(1);
 }
 

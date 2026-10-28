@@ -52,9 +52,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $sent = true;
 }
 
-layout_top('Forgot password', 'public');
+layout_top('', 'public');
 ?>
-<h1>Forgot your password</h1>
+<style>
+    .vfy-title { margin: 0 0 4px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+        /* ---- a little wider once there is room ---- */
+    .vfy h1.vfy-title {
+        margin: 0 0 6px;
+        font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+        line-height: 1.25; color: #0D4F72;
+        padding-left: 12px; border-left: 4px solid #8CC63F;
+    }
+    @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+    .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5;}
+</style>
+<div class="vfy">
+<h1  class="vfy-title">Password Reset</h1>
 
 <?php if ($sent && $problem === ''): ?>
     <p class="flash">If that account exists and has an e-mail address on file, a reset link is on its way.
@@ -77,6 +90,6 @@ layout_top('Forgot password', 'public');
     <button type="submit">Send reset link</button>
   </form>
 <?php endif; ?>
-
-<p class="hint"><a href="login.php">Back to sign in</a></p>
+</div>
+<p class="hint"><a href="welcome.php">Back</a></p>
 <?php layout_bottom(); ?>

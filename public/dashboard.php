@@ -51,6 +51,12 @@ require APP_DIR . '/views/layout.php';
 $user  = require_staff();
 $isAdm = $user['role'] === 'administrator';
 
+// Management reads the figures but may not open a certificate - enforce_role_access()
+// refuses those pages. So the "Open" links are not offered either: a link that
+// bounces you back to the page you clicked it on reads as a broken system, and
+// whoever clicks it has no way of knowing it was never meant for them.
+$canOpen = $user['role'] !== 'management';
+
 /** Is this table present? Lets the page work before the tracking module is installed. */
 function dash_has_table(string $name): bool
 {
@@ -667,9 +673,9 @@ layout_top('Dashboard');
     <td><?= e($row['client'] ?: '—') ?></td>
     <td><span class="dash-pill <?= $row['kind'] === 'governor' ? 'gov' : 'trk' ?>">
       <?= $row['kind'] === 'governor' ? 'Governor' : 'Tracking' ?></span></td>
-    <td><a href="<?= $row['kind'] === 'governor'
+    <td><?php if ($canOpen): ?><a href="<?= $row['kind'] === 'governor'
           ? 'certificate_view.php?id=' . (int)$row['cert_id']
-          : 'tracking_view.php?id=' . (int)$row['cert_id'] ?>">Open</a></td>
+          : 'tracking_view.php?id=' . (int)$row['cert_id'] ?>">Open</a><?php endif; ?></td>
   </tr>
   <?php endforeach; ?>
   <?php if (!$expiring): ?><tr><td colspan="6">Nothing due in the next 30 days.</td></tr><?php endif; ?>
@@ -694,9 +700,9 @@ layout_top('Dashboard');
     <td><?= e($row['client'] ?: '—') ?></td>
     <td><span class="dash-pill <?= $row['kind'] === 'governor' ? 'gov' : 'trk' ?>">
       <?= $row['kind'] === 'governor' ? 'Governor' : 'Tracking' ?></span></td>
-    <td><a href="<?= $row['kind'] === 'governor'
+    <td><?php if ($canOpen): ?><a href="<?= $row['kind'] === 'governor'
           ? 'certificate_view.php?id=' . (int)$row['cert_id']
-          : 'tracking_view.php?id=' . (int)$row['cert_id'] ?>">Open</a></td>
+          : 'tracking_view.php?id=' . (int)$row['cert_id'] ?>">Open</a><?php endif; ?></td>
   </tr>
   <?php endforeach; ?>
   <?php if (!$lapsedRows): ?>

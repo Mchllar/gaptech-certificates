@@ -214,13 +214,19 @@ $label = function_exists('certificate_label')
     ? certificate_label($cert)
     : ($cert['number'] ? 'No. ' . $cert['number'] : 'Draft ' . $cert['id']);
 
-layout_top('Certificate ' . $label);
-layout_back('index.php', 'Back to certificates');
+layout_top('');
+layout_back('index.php', 'Back to SG. Certificates');
 ?>
 
 <h1><?= e($label) ?>
+  <?php /*
+    The class comes from the token, the words from the label. A scheduled
+    certificate reads "Starts 1 December 2026" rather than "Scheduled", because a
+    status that makes you ask "when?" when the answer is known is doing half a job.
+  */ ?>
   <span class="status-pill status-<?= e(strtolower(str_replace(' ', '-', $status))) ?>">
-    <?= e($status) ?></span>
+    <?= e(function_exists('certificate_status_label')
+            ? certificate_status_label($cert) : $status) ?></span>
 </h1>
 
 <?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
@@ -232,6 +238,23 @@ layout_back('index.php', 'Back to certificates');
   <p class="error">Sent back to the administrator<?= trim((string)$cert['rejection_reason']) !== ''
       ? ': ' . e($cert['rejection_reason']) : '.' ?>
      It carries no number and cannot be printed.</p>
+<?php elseif ($status === 'Scheduled'): ?>
+  <?php /*
+    "No longer the current certificate" was being shown here too, which is exactly
+    backwards for a scheduled one: it is not past, it is not yet. This is also the
+    moment somebody is most confused - an approved, numbered certificate that will
+    not print - so it says why, and where to find the one that will.
+  */ ?>
+  <p class="hint" style="text-align:left">
+    <strong>Cover starts <?= e(fmt_date((string)$cert['issue_date'])) ?></strong>, the day after
+    the current certificate ends, so nothing already paid for is lost.
+    It cannot be printed or downloaded until then.
+    <?php if ($replacement): ?>
+      Until <?= e(fmt_date((string)$cert['issue_date'])) ?> the certificate in force is
+      <a href="certificate_view.php?id=<?= (int)$replacement['id'] ?>">No.
+      <?= e($replacement['number']) ?></a> &mdash; print that one.
+    <?php endif; ?>
+  </p>
 <?php elseif ($replacement): ?>
   <p class="hint">This is no longer the current certificate for
      <?= e($cert['reg_no']) ?>.
@@ -257,27 +280,26 @@ layout_back('index.php', 'Back to certificates');
   <tr><th>Vehicle</th><td><?= e($snap(['vehicle', 'reg_no'], $cert['reg_no'])) ?></td>
       <th>Make</th><td><?= e($snap(['vehicle', 'make'], $cert['make'])) ?></td></tr>
   <tr><th>Chassis no.</th><td><?= e($snap(['vehicle', 'chassis_no'], $cert['chassis_no'])) ?></td>
-      <!-- <th>Set speed</th>
-      <td><?= e($snap(['device', 'set_speed_kmh'], $cert['set_speed_kmh'])) ?> km/h</td></tr> -->
-  <!-- <tr><th>Governor</th><td><?= e($snap(['device', 'model'], $cert['device_model'])) ?></td> -->
-      <th>Serial no.</th><td><?= e($snap(['device', 'serial_no'], $cert['serial_no'])) ?></td></tr>
+      <th>Serial no.</th><td><?= e($snap(['device', 'serial_no'], $cert['serial_no'])) ?></td>
+  </tr>
+  <tr>
   <tr><th>Customer</th><td><?= e($snap(['client', 'name'], $cert['client_name'])) ?></td>
       <th>Contact</th><td><?= e($snap(['client', 'phone'], $cert['client_phone'])) ?></td></tr>
-  <!-- <tr><th>Address</th><td><?= e($snap(['client', 'address'], $cert['client_address'])) ?></td> -->
-  <tr><th>Installed</th><td><?= e($snap(['installation', 'installed_on_fmt'], '—')) ?></td>
-      <!-- <th>Technician</th><td><?= e($snap(['installation', 'technician'], '—')) ?></td></tr> -->
+  <tr>
+      <th>Type</th><td><?= e($snap(['cert', 'type'], $cert['type'])) ?></td>
+      <th>Installed on</th><td><?= e($snap(['installation', 'installed_on_fmt'], '—')) ?></td>
+  </tr>
   <?php if (!$rejected): ?>
-    <!-- <tr><th>Issued</th><td><?= e(fmt_date($cert['issue_date'])) ?></td> -->
-        <th>Expires</th><td><?= e(fmt_date($cert['expiry_date'])) ?></td></tr>
+    <tr><th>Issued</th><td><?= e(fmt_date($cert['issue_date'])) ?></td>
+        <th>Expires</th><td><?= e(fmt_date($cert['expiry_date'])) ?></td>
+    </tr>
   <?php endif; ?>
   <tr><th>Raised by</th><td><?= e($cert['issued_by_name'] ?? '—') ?></td>
       <th>Raised on</th>
       <td><?= e(fmt_date(substr((string)($cert['issued_at'] ?? $cert['issue_date']), 0, 10))) ?></td></tr>
-        <tr><th>Type</th><td><?= e($snap(['cert', 'type'], $cert['type'])) ?></td></tr>
-
   <?php if ($approved): ?>
-    <tr><th>Released by</th><td><?= e($cert['decided_by_name'] ?? '—') ?></td>
-        <th>Released on</th>
+    <tr><th>Approved by</th><td><?= e($cert['decided_by_name'] ?? '—') ?></td>
+        <th>Approved on</th>
         <td><?= e(fmt_date(substr((string)$cert['approved_at'], 0, 10))) ?></td></tr>
   <?php endif; ?>
 </table>
@@ -347,22 +369,20 @@ if ($payNote !== '') { $payCells[] = ['Message', '<a href="#" data-modal="#m-not
       <form method="post" class="card-form">
         <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
         <input type="hidden" name="id" value="<?= (int)$cert['id'] ?>">
+        <label class="field">Payment reference
+          <span class="field-row">
+            <input name="payment_ref" maxlength="40" style="text-transform:uppercase"
+                   value="<?= e((string)$cert['payment_ref']) ?>"></span></label>
         <label class="field">LPO number
           <span class="field-row">
             <input name="lpo_no" maxlength="60" style="text-transform:uppercase"
                    value="<?= e((string)($cert['lpo_no'] ?? '')) ?>"></span></label>
-        <label class="field" style="width:100%"> Payment Message
+        <label class="field" style="width:100%">Message
           <span class="field-row">
             <textarea name="payment_note" rows="2"
               style="width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:6px;
                      font-family:inherit; font-size:14px; resize:vertical"><?= e((string)$cert['payment_note']) ?></textarea>
           </span></label>
-          <label class="field">Payment reference
-            <span class="field-row">
-              <input name="payment_ref" maxlength="40" style="text-transform:uppercase"
-                    value="<?= e((string)$cert['payment_ref']) ?>"></span></label>
- 
-
 
         <?php /*
           Required here and checked again on the server. The browser's own
@@ -392,16 +412,16 @@ if ($payNote !== '') { $payCells[] = ['Message', '<a href="#" data-modal="#m-not
 <!-- Accounts: release or send back                                      -->
 <!-- ------------------------------------------------------------------ -->
 <?php if ($isAcc && $pending): ?>
-  <h2>Issue certificate</h2>
+  <h2>Release this certificate</h2>
 
   <p class="hint" style="text-align:left">
-    An administrator has raised this. Issuing it gives it a serial number and the client
+    An administrator has raised this. Releasing it gives it a number and the client
     can download it straight away. Look at it first &mdash; the preview is the sheet
     exactly as it will print.
   </p>
-<!-- 
+
   <p><a class="button secondary" target="_blank"
-        href="certificate_print.php?id=<?= (int)$cert['id'] ?>">Preview the certificate</a></p> -->
+        href="certificate_print.php?id=<?= (int)$cert['id'] ?>">Preview the certificate</a></p>
 
   <form method="post" class="card-form">
     <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
@@ -412,8 +432,8 @@ if ($payNote !== '') { $payCells[] = ['Message', '<a href="#" data-modal="#m-not
 
       <?php if ($hasPayment): ?>
         <p class="hint" style="text-align:left; margin:0 0 12px; color:#8A5A00">
-          The administrator recorded this when they raised it. Confirm it before
-          releasing.</p>
+          The administrator recorded this when they raised it. Check it before
+          releasing &mdash; nobody in accounts has looked at it yet.</p>
       <?php endif; ?>
 
       <label class="field" style="width:100%">Payment message
@@ -459,42 +479,54 @@ if ($payNote !== '') { $payCells[] = ['Message', '<a href="#" data-modal="#m-not
   </form>
 <?php endif; ?>
 
+<!-- ------------------------------------------------------------------ -->
+<!-- What anyone can do with it                                          -->
+<!-- ------------------------------------------------------------------ -->
 <?php
-
-$showCertActions = $isAdm || !$rejected;
+// A rejected certificate offers accounts nothing: it cannot be viewed, printed or
+// downloaded, and the explanation is for the administrator who has to raise it
+// again. Without this the whole section collapses to a heading over empty space,
+// which reads as something failing to load.
+// The certificate is only openable while it is valid. Nothing else in this
+// section is worth a heading on its own, so when there is neither something to
+// print nor something to do, the whole section goes rather than leaving a title
+// over empty space.
+//
+// A pending certificate is NOT an exception here: accounts preview it from the
+// Release panel below, which is the right place for it - look at it, then decide,
+// in one flow rather than from a stray button further up the page.
+$showCertActions = $live || ($isAdm && $inForce);
 ?>
 <?php if ($showCertActions): ?>
+<h2>The certificate itself</h2>
 
+<!-- ------------------------------------------------------------------ -->
+<!-- Same bar as the tracking module: solid for the thing you came to   -->
+<!-- do, outlined for the quieter one, red for the destructive one.     -->
+<!--                                                                    -->
+<!-- Renew and Withdraw were link-buttons, which made the two actions   -->
+<!-- that change the record look lighter than the two that only produce -->
+<!-- paper. Withdraw is red because it is the one that cannot be undone,-->
+<!-- and it is last for the same reason.                                -->
+<!-- ------------------------------------------------------------------ -->
 <div class="row-actions" style="margin-top:22px; display:flex; flex-wrap:wrap; align-items:center; gap:10px">
+  <?php /*
+    Print and Download only, and only while the certificate is valid.
+
+    The "View (scheduled)" / "View (expired)" button that used to sit here is
+    gone. It opened the sheet for a certificate that is not in force, under a
+    label that said "view-only" - which told somebody the one thing they could do
+    was the thing they should not be doing. A certificate that is not valid has
+    nothing anybody needs to open: the banner at the top of this page already says
+    what its state is and, for a scheduled one, which certificate to print instead.
+  */ ?>
   <?php if ($live): ?>
     <a class="button" target="_blank"
        href="certificate_print.php?id=<?= (int)$cert['id'] ?>&amp;print=1">Print</a>
     <a class="button secondary"
        href="certificate_print.php?id=<?= (int)$cert['id'] ?>&amp;download=1">Download PDF</a>
-  <?php elseif (!$rejected): ?>
-    <?php if ($isAdm): ?>
-      <a class="button secondary" target="_blank"
-         href="certificate_print.php?id=<?= (int)$cert['id'] ?>">View (<?= e(strtolower($status)) ?>)</a>
-    <?php endif; ?>
-    <?php /*
-      Administrators only. These lines explain the state of the certificate to the
-      person waiting on somebody else to act - and for accounts that somebody else
-      is themselves. "It cannot be printed until accounts release it" told to
-      accounts is both redundant and faintly absurd, and the Release panel is
-      directly below it saying the same thing in a form they can actually use.
-    */ ?>
-    <?php if ($isAdm): ?>
-      <span class="hint" style="margin:0">
-        <?= $pending
-              ? 'It cannot be printed or downloaded until accounts release it.'
-              : 'This certificate is not current, so it is view-only.' ?>
-      </span>
-    <?php endif; ?>
-  <?php elseif ($isAdm): ?>
-    <span class="hint" style="margin:0">A certificate that has been sent back has no number
-      and cannot be printed.</span>
   <?php endif; ?>
- 
+
   <?php if ($isAdm && $inForce): ?>
     <button type="button" class="button renew-open"
             data-id="<?= (int)$cert['id'] ?>"
@@ -505,7 +537,7 @@ $showCertActions = $isAdm || !$rejected;
   <?php endif; ?>
 </div>
 <?php endif; ?>
- 
+
 <?php if ($isAdm && $inForce): ?>
 <?php /*
   Withdrawing used to be a form sitting open at the bottom of the page behind a

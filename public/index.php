@@ -124,7 +124,7 @@ layout_top('');
     .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5;}
 </style>
 <div class="vfy">
-<h1 class="vfy-title">Governor Installations</h1>
+<h1 class="vfy-title">Speed Governor Installations</h1>
 <p class="vfy-sub">Search, filter and review the speed governor certificates.</p>
 
 <?php if ((int)$counts['pending_count'] > 0): ?>

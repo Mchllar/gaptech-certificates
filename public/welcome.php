@@ -6,13 +6,13 @@
 require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/views/layout.php';
 
-if (current_user()) {
-    redirect('index.php');
+if ($signedIn = current_user()) {
+    redirect(staff_home($signedIn));
 }
 if (current_client()) {
     redirect('client_portal.php');
 }
-
+ 
 layout_top('Welcome', 'public');
 ?>
 <style>
@@ -33,7 +33,7 @@ layout_top('Welcome', 'public');
   <h1 class="vfy-title">Certificates System</h1>
   <p class="vfy-sub">Choose how to Continue</p>
 <div class="door-cards">
-  <a class="door door-admin" href="login.php">
+  <!-- <a class="door door-admin" href="login.php">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0"
          stroke-linecap="round" stroke-linejoin="round">
       <circle cx="9" cy="7.5" r="3.8"/>
@@ -42,9 +42,18 @@ layout_top('Welcome', 'public');
     </svg>
     <span class="door-title">Administrator</span>
     <span class="door-text">Issue, print and manage certificates</span>
+  </a> -->
+
+  <a class="door" href="login.php">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0"
+         stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 18v2h8v-2"/>
+    </svg>
+    <span class="door-title">Staff</span>
+    <span class="door-text">Certificates, Approvals and Dashboards</span>
   </a>
 
-  <a class="door door-accounts" href="login.php?as=accounts">
+  <!-- <a class="door door-accounts" href="login.php?as=accounts">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0"
         stroke-linecap="round" stroke-linejoin="round">
       <circle cx="9" cy="7.5" r="3.8"/>
@@ -54,7 +63,7 @@ layout_top('Welcome', 'public');
     </svg>
     <span class="door-title">Accounts</span>
     <span class="door-text">Confirm payments and approve certificates</span>
-  </a>
+  </a> -->
 
   <a class="door door-client" href="client_login.php">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.0"

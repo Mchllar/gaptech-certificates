@@ -278,7 +278,12 @@ function certificate_pdf(array $cert, bool $force = false): ?string
     }
  
     $pdfPath = $dir . '/certificate-' . $cert['number'] . '.pdf';
-    if (!$force && is_file($pdfPath) && !empty($cert['pdf_path'])) {
+ 
+    // Cached, but checked. is_file() alone meant that once a bad PDF was stored -
+    // one that rendered as "Not found.", say - it was served for ever, because
+    // the renderer underneath was never reached again. pdf_file_is_sane() looks
+    // at what is actually on disk, and anything wrong is made again below.
+    if (!$force && !empty($cert['pdf_path']) && pdf_file_is_sane($pdfPath, 'landscape')) {
         return $pdfPath;
     }
  
@@ -288,8 +293,7 @@ function certificate_pdf(array $cert, bool $force = false): ?string
         [$pdfPath, hash_file('sha256', $pdfPath), $cert['id']]);
  
     return $pdfPath;
-}
- 
+} 
 
 /** Expiry date the certificate wording implies: twelve months from issue, less a day. */
 function default_expiry(string $issueDate, int $months = 12): string
@@ -556,4 +560,14 @@ function void_certificate(array $cert, array $user, string $reason): array
     ]);
 
     return q('SELECT * FROM certificates WHERE id = ?', [$cert['id']])->fetch();
+}
+function renewal_start_date(string $currentExpiry, ?string $today = null): string
+{
+    $today = $today ?: date('Y-m-d');
+
+    if (strtotime($currentExpiry) >= strtotime($today)) {
+        return date('Y-m-d', strtotime($currentExpiry . ' +1 day'));
+    }
+
+    return $today;
 }

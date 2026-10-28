@@ -453,16 +453,30 @@ function pdf_token_check(string $kind, int $id, int $expires, string $sig): bool
 }
 
 /**
- * Where this site answers itself.
+ * Where this site answers ITSELF.
  *
- * 127.0.0.1 rather than the machine's name on purpose: it does not depend on DNS,
- * on the network being up, or on which address the server happens to have today.
+ * Not the same thing as $config['base_url'], and this function deliberately
+ * ignores it.
+ *
+ * base_url is the PUBLIC address - what a client's phone types, what a QR code
+ * points at. It is often the machine's address on the office network, like
+ * http://192.168.100.162/gaptech-certificates/public. Building the internal
+ * render URL from it sends Chrome out onto the network and back in again, so
+ * Apache sees the request arriving from 192.168.100.162 rather than from itself,
+ * pdf_token_check() refuses it as it is meant to, and pdf_sheet.php answers
+ * "Not found." Chrome then renders THAT - two words on a sheet of US Letter -
+ * and hands back a perfectly valid PDF of an error message.
+ *
+ * So the address the server uses to talk to itself is always 127.0.0.1. It does
+ * not depend on DNS, on the network being up, or on which address the machine
+ * happens to have today. $config['internal_url'] overrides it, for an install
+ * where loopback genuinely does not reach this site.
  */
 function pdf_base_url(): string
 {
     global $config;
 
-    $set = trim((string)($config['base_url'] ?? ''));
+    $set = trim((string)($config['internal_url'] ?? ''));
     if ($set !== '') {
         return rtrim($set, '/') . '/';
     }
@@ -471,10 +485,83 @@ function pdf_base_url(): string
     // gives /gaptech-certificates/public, which is exactly what we want.
     $script = (string)($_SERVER['SCRIPT_NAME'] ?? '');
     $dir    = $script !== '' ? rtrim(str_replace('\\', '/', dirname($script)), '/') : '';
-    $port   = (int)($_SERVER['SERVER_PORT'] ?? 80);
-    $host   = '127.0.0.1' . ($port && $port !== 80 ? ':' . $port : '');
 
-    return 'http://' . $host . $dir . '/';
+    $https  = (($_SERVER['HTTPS'] ?? '') !== '' && ($_SERVER['HTTPS'] ?? '') !== 'off');
+    $scheme = $https ? 'https' : 'http';
+    $port   = (int)($_SERVER['SERVER_PORT'] ?? ($https ? 443 : 80));
+    $bare   = ($https && $port === 443) || (!$https && $port === 80);
+    $host   = '127.0.0.1' . ($bare ? '' : ':' . $port);
+
+    return $scheme . '://' . $host . $dir . '/';
+}
+
+/**
+ * Ask for the sheet ourselves, before Chrome is asked to render it.
+ *
+ * Chrome renders whatever it is given. A 404 is a page; so is a PHP fatal error;
+ * so is a login form. Every one of them comes back as a valid PDF of the wrong
+ * thing, and the checks after the render - is it a file, is it big enough, does
+ * it start with %PDF - all pass. That is how a certificate came out reading
+ * "Not found."
+ *
+ * One local request settles it first, and the error says what actually happened
+ * instead of handing somebody a PDF that looks like a bug in the certificate.
+ *
+ * Returns null when it cannot probe at all (no curl, no allow_url_fopen), in
+ * which case the render goes ahead unchecked rather than being blocked by a
+ * check that cannot run.
+ */
+function pdf_probe_sheet(string $url): ?array
+{
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 15,
+            CURLOPT_FOLLOWLOCATION => false,
+            // Loopback to this very server. There is nothing between here and
+            // there to intercept, and a self-signed certificate on localhost is
+            // the normal case rather than a warning sign.
+            CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => 0,
+        ]);
+        $body   = curl_exec($ch);
+        $status = (int)curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        $err    = curl_error($ch);
+        curl_close($ch);
+
+        if ($body === false) {
+            throw new RuntimeException('The server could not reach itself at ' . $url
+                . ' (' . $err . '). If Apache only answers on a name rather than on '
+                . "127.0.0.1, set 'internal_url' in config.php to an address that "
+                . 'reaches this site from this machine.');
+        }
+
+        return ['status' => $status, 'body' => (string)$body];
+    }
+
+    if (!ini_get('allow_url_fopen')) {
+        return null;
+    }
+
+    $ctx = stream_context_create([
+        'http' => ['timeout' => 15, 'ignore_errors' => true, 'follow_location' => 0],
+        'ssl'  => ['verify_peer' => false, 'verify_peer_name' => false],
+    ]);
+
+    $body = @file_get_contents($url, false, $ctx);
+    if ($body === false) {
+        return null;
+    }
+
+    $status = 0;
+    foreach ((array)($http_response_header ?? []) as $line) {
+        if (preg_match('~^HTTP/\S+\s+(\d{3})~', $line, $m)) {
+            $status = (int)$m[1];
+        }
+    }
+
+    return ['status' => $status, 'body' => $body];
 }
 
 /**
@@ -509,6 +596,33 @@ function pdf_render_certificate(string $kind, int $id, string $pdfPath, string $
          . '&exp=' . $expires
          . '&sig=' . pdf_token($kind, $id, $expires);
 
+    // Check the page IS the certificate before Chrome is asked to render it.
+    $probe = pdf_probe_sheet($url);
+    if ($probe !== null) {
+        if ($probe['status'] === 404) {
+            throw new RuntimeException(
+                'The server refused its own request for this certificate (404). That is '
+                . "almost always the render URL pointing somewhere other than this machine: "
+                . "the page is only served to 127.0.0.1. Check that 'internal_url' in "
+                . 'config.php is either unset or an address this machine reaches itself on. '
+                . 'The address used was: ' . $url);
+        }
+        if ($probe['status'] !== 200) {
+            throw new RuntimeException('The certificate page answered with HTTP '
+                . $probe['status'] . ' rather than 200, so there was nothing worth '
+                . 'rendering. The address used was: ' . $url);
+        }
+        // pdf_sheet.php injects the paper rule into every sheet it serves, so its
+        // presence means a real sheet came back rather than an error page that
+        // happened to return 200.
+        if (stripos($probe['body'], '@page') === false) {
+            $kept = pdf_keep_failed_html($pdfPath, $probe['body']);
+            throw new RuntimeException('The page came back without a certificate on it, '
+                . 'so it was not rendered.'
+                . ($kept !== '' ? ' What came back was saved as: ' . $kept : ''));
+        }
+    }
+
     $dir = dirname($pdfPath);
     if (!is_dir($dir) && !mkdir($dir, 0770, true) && !is_dir($dir)) {
         throw new RuntimeException('Cannot create folder: ' . $dir);
@@ -524,6 +638,85 @@ function pdf_render_certificate(string $kind, int $id, string $pdfPath, string $
         throw new RuntimeException('Chrome reported success but the file is not a PDF ('
             . $size . '). The page it was asked to render: ' . $url);
     }
+
+    // And is it the right way round?
+    //
+    // Chrome takes the orientation from the page's own CSS, so "the @page rule
+    // did not apply" looks exactly like success: a real PDF, right size, opens
+    // fine, printed sideways. That was the original complaint on the phone, and
+    // an error page comes out this way too - Chrome's default paper is US Letter
+    // portrait. Cheaper to notice here than for somebody to notice at the
+    // counter.
+    $shape = pdf_page_is_landscape($pdfPath);
+    if ($shape !== null && $shape !== ($orientation !== 'portrait')) {
+        @unlink($pdfPath);
+        throw new RuntimeException('The PDF came out '
+            . ($shape ? 'landscape' : 'portrait') . ' when it should be '
+            . $orientation . ', which means the page rule did not apply. The page '
+            . 'it was asked to render: ' . $url);
+    }
+}
+
+/**
+ * Is the PDF already on disk one we should hand over?
+ *
+ * The PDF is cached: once certificate-13768.pdf exists and pdf_path is set, every
+ * download returns that file and nothing is rendered at all. That is right - a
+ * certificate is evidence, and re-rendering it on every click would be wrong.
+ *
+ * But it also means that once a BAD file is stored, it is stored for good. A
+ * certificate that rendered as "Not found." kept downloading as "Not found."
+ * however many times the renderer underneath it was fixed, because the renderer
+ * was never reached.
+ *
+ * So the file is looked at before it is trusted: is it a PDF, has it got
+ * something in it, and is it the right way round? Anything else is thrown away
+ * and made again. A file this fails is a file nobody wanted.
+ */
+function pdf_file_is_sane(string $pdfPath, string $orientation): bool
+{
+    if (!is_file($pdfPath) || filesize($pdfPath) < 1000) {
+        return false;
+    }
+
+    if (strncmp((string)file_get_contents($pdfPath, false, null, 0, 5), '%PDF-', 5) !== 0) {
+        return false;
+    }
+
+    // Unreadable is not the same as wrong. A PDF with no MediaBox to read gets
+    // the benefit of the doubt rather than being re-rendered on every download.
+    $shape = pdf_page_is_landscape($pdfPath);
+    if ($shape === null) {
+        return true;
+    }
+
+    return $shape === ($orientation !== 'portrait');
+}
+
+/**
+ * Is the first page of this PDF wider than it is tall?
+ *
+ * Reads the first /MediaBox, which is the page size in points. Returns null if
+ * there is no MediaBox to read - an unreadable answer must not become a wrong
+ * one.
+ */
+function pdf_page_is_landscape(string $pdfPath): ?bool
+{
+    $head = (string)file_get_contents($pdfPath, false, null, 0, 200000);
+
+    if (!preg_match('~/MediaBox\s*\[\s*([\d.+-]+)\s+([\d.+-]+)\s+([\d.+-]+)\s+([\d.+-]+)~',
+                    $head, $m)) {
+        return null;
+    }
+
+    $width  = abs((float)$m[3] - (float)$m[1]);
+    $height = abs((float)$m[4] - (float)$m[2]);
+
+    if ($width <= 0 || $height <= 0) {
+        return null;
+    }
+
+    return $width > $height;
 }
 
 /**

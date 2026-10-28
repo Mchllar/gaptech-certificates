@@ -474,32 +474,6 @@ function render_tracking_sheet(array $cert, string $mode = 'screen'): string
     return (string)ob_get_clean();
 }
 
-function tracking_pdf(array $cert, bool $force = false): ?string
-{
-    global $config;
- 
-    if (pdf_engine() === null) {
-        return null;                       // same fallback as certificate_pdf()
-    }
- 
-    $dir = rtrim((string)$config['storage'], '/\\') . '/tracking';
-    if (!is_dir($dir) && !mkdir($dir, 0770, true) && !is_dir($dir)) {
-        throw new RuntimeException('Cannot create storage folder: ' . $dir);
-    }
- 
-    $pdfPath = $dir . '/installation-' . tracking_label($cert) . '.pdf';
-    if (!$force && is_file($pdfPath) && !empty($cert['pdf_path'])) {
-        return $pdfPath;
-    }
- 
-    pdf_render_certificate('tracking', (int)$cert['id'], $pdfPath, 'portrait');
- 
-    q('UPDATE tracking_certificates SET pdf_path = ?, pdf_sha256 = ? WHERE id = ?',
-        [$pdfPath, hash_file('sha256', $pdfPath), $cert['id']]);
- 
-    return $pdfPath;
-}
- 
 
 /**
  * Three functions to ADD to the end of app/tracking.php, plus one small change to
@@ -693,4 +667,43 @@ function tracking_device_history(string $imei): array
                 JOIN tracking_imeis i ON i.cert_id = c.id
                WHERE i.imei = ?
                ORDER BY c.subscription_date DESC, c.id DESC", [$imei])->fetchAll();
+}
+
+ 
+// ===========================================================================
+// In app/tracking.php - replaces tracking_pdf()
+// ===========================================================================
+ 
+/**
+ * Produce the PDF and remember where it is.
+ *
+ * Portrait, and two pages: the certificate, then the guarantee terms. The page
+ * break in tracking_terms.php does the splitting; all this sets is the paper.
+ */
+function tracking_pdf(array $cert, bool $force = false): ?string
+{
+    global $config;
+ 
+    if (pdf_engine() === null) {
+        return null;                       // same fallback as certificate_pdf()
+    }
+ 
+    $dir = rtrim((string)$config['storage'], '/\\') . '/tracking';
+    if (!is_dir($dir) && !mkdir($dir, 0770, true) && !is_dir($dir)) {
+        throw new RuntimeException('Cannot create storage folder: ' . $dir);
+    }
+ 
+    $pdfPath = $dir . '/installation-' . tracking_label($cert) . '.pdf';
+ 
+    // Same check as certificate_pdf(), portrait this time - see the note there.
+    if (!$force && !empty($cert['pdf_path']) && pdf_file_is_sane($pdfPath, 'portrait')) {
+        return $pdfPath;
+    }
+ 
+    pdf_render_certificate('tracking', (int)$cert['id'], $pdfPath, 'portrait');
+ 
+    q('UPDATE tracking_certificates SET pdf_path = ?, pdf_sha256 = ? WHERE id = ?',
+        [$pdfPath, hash_file('sha256', $pdfPath), $cert['id']]);
+ 
+    return $pdfPath;
 }

@@ -23,14 +23,38 @@ if (!$old) {
     exit('No such certificate.');
 }
 
-// A year from today, ending the day before the anniversary: renewed 13 Oct 2026
-// expires 12 Oct 2027.
-$issue  = date('Y-m-d');
+// The new cover picks up the day after the current cover ends, so nothing the
+// client has already paid for is thrown away.
+//
+// This used to start from today, which meant renewing a certificate with a month
+// still to run quietly cost the client that month - and made leaving the renewal
+// to the last possible day the safest thing to do, which is how cover lapses.
+//
+// A certificate that has ALREADY expired starts today instead; renewal_start_date()
+// holds that rule. Backdating would issue cover for days the vehicle did not have.
+$issue  = renewal_start_date((string)$old['expiry_date']);
 $expiry = date('Y-m-d', strtotime($issue . ' +1 year -1 day'));
+
+// Waiting its turn rather than taking over now. Only used for the message at the
+// end - the certificate itself needs no flag, because a future issue date is
+// exactly what "scheduled" means.
+$startsLater = strtotime($issue) > strtotime(date('Y-m-d'));
 
 // Everything else comes from the old certificate's snapshot, not from the form,
 // so a renewal cannot quietly change the vehicle or the governor.
 $s = json_decode((string)$old['snapshot'], true) ?: [];
+
+// When the governor actually went on, from the installation the old certificate
+// points at. The snapshot is a copy of that date; the installation row is the
+// original, so it is asked first.
+//
+// A renewal does not refit anything, so this must not move. The old last resort
+// was $old['issue_date'] - the date the previous CERTIFICATE was issued, which is
+// not an installation date at all and walks forward a year on every renewal.
+$fitted = !empty($old['installation_id'])
+    ? q('SELECT installed_on, technician FROM installations WHERE id = ?',
+        [(int)$old['installation_id']])->fetch()
+    : null;
 
 $in = [
     'client_name'     => $s['client']['name'] ?? '',
@@ -42,10 +66,15 @@ $in = [
     'device_model'    => $s['device']['model'] ?? (trim((string)setting('default_model')) ?: 'INTELSPEED™'),
     'serial_no'       => $s['device']['serial_no'] ?? '',
     'set_speed_kmh'   => $s['device']['set_speed_kmh'] ?? (trim((string)setting('default_speed')) ?: '80'),
-    'installed_on'    => !empty($s['installation']['installed_on_fmt'])
-                           ? date('Y-m-d', strtotime($s['installation']['installed_on_fmt']))
-                           : $old['issue_date'],
-    'technician'      => $s['installation']['technician']
+    // The installation record first, the old snapshot second, and only then the
+    // old issue date - kept for a certificate so old it has neither, and which
+    // create_certificate() now corrects from the record anyway.
+    'installed_on'    => $fitted['installed_on'] ?? (
+                             !empty($s['installation']['installed_on_fmt'])
+                               ? date('Y-m-d', strtotime($s['installation']['installed_on_fmt']))
+                               : $old['issue_date']),
+    'technician'      => $fitted['technician']
+                           ?? $s['installation']['technician']
                            ?? (trim((string)setting('default_technician')) ?: 'GAPTECH'),
     'type'            => 'Renewal',
     'issue_date'      => $issue,
@@ -74,7 +103,12 @@ audit('renew_certificate', 'certificate', $newId, [
     'lpo_no'       => $lpo,
 ]);
 
+// Say when the new cover starts, not just when it ends. Somebody renewing a month
+// early needs to see that the month was kept rather than wonder where it went.
 $_SESSION['flash_ok'] = 'Renewal created for ' . ($s['vehicle']['reg_no'] ?? 'the vehicle')
-    . ', expiring ' . fmt_date($expiry) . '. It is with accounts to approve.';
+    . ($startsLater
+        ? ', starting ' . fmt_date($issue) . ' when the current certificate ends'
+        : ', starting today')
+    . ' and running to ' . fmt_date($expiry) . '. It is with accounts to approve.';
 
 redirect($_POST['back'] ?? 'index.php');

@@ -216,7 +216,7 @@ layout_top('');
 </div>
 
 <?php if ($isAdm): ?>
-<h2>Subscriptions expiring in the next 30 days</h2>
+<h2>Expiring in the next 30 days</h2>
 <table>
   <tr><th>Expires</th><th>Serial</th><th>Vehicle</th><th>Customer</th><th></th></tr>
   <?php foreach ($expiring as $row): ?>

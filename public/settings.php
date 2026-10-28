@@ -41,11 +41,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     redirect('settings.php');
 }
 
-layout_top('Settings');
-layout_back('index.php', 'Back to certificates');
+layout_top('');
+layout_back('index.php', 'Back to SG Certificates');
 ?>
-<h1  class="page-title">SG. Settings</h1>
-<p class="hint">These values are printed on new certificates. Certificates already issued keep the details
+<style>
+    .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+        /* ---- a little wider once there is room ---- */
+    .vfy h1.vfy-title {
+        margin: 0 0 6px;
+        font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+        line-height: 1.25; color: #0D4F72;
+        padding-left: 12px; border-left: 4px solid #8CC63F;
+    }
+    @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+    .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5;}
+</style>
+<div class="vfy">
+<h1  class="vfy-title">SG. Settings</h1>
+<p class="vfy-sub">These values are printed on new certificates. Certificates already issued keep the details
 they were issued with.</p>
 
 <form method="post" enctype="multipart/form-data" class="card-form">
@@ -85,4 +98,5 @@ they were issued with.</p>
   </fieldset>
   <button type="submit">Save settings</button>
 </form>
+</div>
 <?php layout_bottom(); ?>

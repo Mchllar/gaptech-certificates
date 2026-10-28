@@ -222,6 +222,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 function trk_input(string $name, string $label, string $value, array $opts = []): void
 {
     $req  = !array_key_exists('required', $opts) || $opts['required'];
+        if (stripos($label, 'optional') !== false) {
+        $req = false;
+    }
     $type = $opts['type'] ?? 'text';
     echo '<label class="field">' . e($label);
     if ($req) { echo ' <span class="req">*</span>'; }
@@ -344,11 +347,25 @@ function trk_financiers(): array
     return array_keys($seen);
 }
 
-layout_top('New installation certificate');
-layout_back('tracking_list.php', 'Back to installations');
+layout_top('');
+layout_back('tracking_list.php', 'Back to Tracker Installations');
 ?>
-<h1>New Installation Certificate</h1>
-<p class="hint">For a vehicle tracking unit. The expiry date is worked out from the subscription
+<style>
+  .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+     /* ---- a little wider once there is room ---- */
+  .vfy h1.vfy-title {
+    margin: 0 0 6px;
+    font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+    line-height: 1.25; color: #0D4F72;
+    padding-left: 12px; border-left: 4px solid #8CC63F;
+  }
+  @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+  .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5;}
+
+</style>
+<div class="vfy">
+<h1 class="vfy-title">New Installation Certificate</h1>
+<p class="vfy-sub">For a vehicle tracking unit. The expiry date is worked out from the subscription
 date &mdash; twelve months, ending the day before the anniversary. The certificate goes to
 accounts when you save, and takes its serial number once they confirm the payment.</p>
 
@@ -397,8 +414,8 @@ accounts when you save, and takes its serial number once they confirm the paymen
     <?php trk_input('imei', 'Track IMEI no.', $form['imei'],
           ['inputmode' => 'numeric', 'maxlength' => 17,
            'hint' => '15 digits, from the unit or the device list.']); ?>
-    <?php trk_input('imei_2', 'Second unit no. (optional)', $form['imei_2'],
-          ['maxlength' => 32, 'caps' => true,
+        <?php trk_input('imei_2', 'Second unit no. (optional)', $form['imei_2'],
+          ['required' => false, 'maxlength' => 32, 'caps' => true,
            'hint' => 'Only if a second tracker is fitted. IMEI or serial, whatever is '
                    . 'on the unit. Both print in one box, separated by a slash.']); ?>
     <?php trk_input('installed_on', 'Date installed', $form['installed_on'], ['type' => 'date']); ?>
@@ -411,7 +428,7 @@ accounts when you save, and takes its serial number once they confirm the paymen
       <span class="field-row">
         <select name="term_months" id="term">
           <?php foreach ([12 => '1 year', 24 => '2 years', 36 => '3 years',
-                          48 => '4 years', 60 => '5 years'] as $m => $text): ?>
+                          48 => '4 years', 60 => '5 years', 72 => '6 years'] as $m => $text): ?>
             <option value="<?= $m ?>" <?= (int)$form['term_months'] === $m ? 'selected' : '' ?>>
               <?= e($text) ?></option>
           <?php endforeach; ?>
@@ -444,7 +461,7 @@ accounts when you save, and takes its serial number once they confirm the paymen
 
   <button type="submit">Save certificate</button>
 </form>
-
+</div>
 <script>
 // Type in capitals: the value itself is stored in capitals, not only shown that way.
 document.querySelectorAll('input.caps').forEach(function (input) {

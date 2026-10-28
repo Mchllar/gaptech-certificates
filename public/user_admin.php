@@ -54,7 +54,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $createErrors[] = 'That username is taken.';
         } elseif (($pwError = password_problem($password, (string)($_POST['password2'] ?? ''))) !== null) {
             $createErrors[] = $pwError;
-        } elseif (!in_array($form['role'], ['administrator', 'accounts'], true)) {
+        } elseif (!in_array($form['role'], ['administrator', 'accounts', 'management'], true)) {
             $createErrors[] = 'Invalid role.';
         } elseif ($form['email'] !== ''
                   && q('SELECT 1 FROM users WHERE lower(email) = lower(?)', [$form['email']])->fetch()) {
@@ -241,7 +241,15 @@ layout_back('index.php', 'Back to SG. Certificates');
       <select name="role" required>
         <option value="administrator" <?= $form['role'] === 'administrator' ? 'selected' : '' ?>>Administrator</option>
         <option value="accounts" <?= $form['role'] === 'accounts' ? 'selected' : '' ?>>Accounts</option>
+        <option value="management" <?= $form['role'] === 'management' ? 'selected' : '' ?>>Management</option>
       </select>
+      <span class="ca-note">
+        <strong>Administrator</strong> &mdash; raises certificates and runs the system.
+        <strong>Accounts</strong> &mdash; confirms payments and releases certificates.
+        <strong>Management</strong> &mdash; the dashboard only. No certificates, no
+        approvals, no settings, and no access to anything else even by typing the
+        address.
+      </span>
     </label>
 
     <label class="gt-f">Password <span class="req">*</span>

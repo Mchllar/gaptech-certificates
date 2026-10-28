@@ -68,7 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 
 layout_top('', $me ? 'staff' : 'public');
-layout_back($me['role'] === 'accounts' ? 'approvals.php' : 'index.php', 'Back to SG. Certificates');
+layout_back($me['role'] === 'accounts' ? 'index.php' : 'index.php', 'Back to SG. Certificates');
 ?>
 <style>
     .chg-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }

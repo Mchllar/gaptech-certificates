@@ -116,15 +116,26 @@ $gtName = $gtUser ? (string)($gtUser['name'] ?? '') : (string)($gtClient['name']
       <?= gt_link('client_portal.php', 'portal', 'My SG. Certificates') ?>
       <?= gt_link('verify.php', 'verify', 'Verify SG. Certificate') ?>
 
-    <?php else: ?>
+    <?php elseif ($gtRole === 'management'): ?>
+      <?php /*
+        Two links, and they are the whole account. Management sees the figures,
+        not the paperwork. Anything else is refused by enforce_role_access()
+        whether or not it is listed here, so this menu describes the account
+        rather than merely suggesting it.
+      */ ?>
       <?= gt_link('dashboard.php', 'dashboard', 'Dashboard') ?>
+      <?= gt_link('change_password.php', 'password', 'Change password') ?>
+      
+    <?php else: ?>
+      <!-- <?= gt_link('dashboard.php', 'dashboard', 'Dashboard') ?> -->
       <?= gt_link('index.php', 'certs', 'SG. Certificates') ?>
       <?= gt_link('tracking_list.php', 'certs', 'Tracking Installations') ?>
       <?= gt_link('verify.php', 'verify', 'Verify a SG. Certificate') ?>
       <?= gt_link('client_access.php', 'clients', 'Client Portal Access') ?>
       <?= gt_link('user_admin.php', 'clients', 'Staff Accounts') ?>
-      <?= gt_link('settings.php', 'settings', 'SG. Settings') ?>
       <?= gt_link('change_password.php', 'password', 'Change Password') ?>
+      <?= gt_link('settings.php', 'settings', 'SG. Settings') ?>
+
     <?php endif; ?>
   </nav>
 

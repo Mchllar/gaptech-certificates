@@ -32,15 +32,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             unset($_SESSION['client_id']);
             session_regenerate_id(true);
             audit('login', 'user', (int)$user['id']);
-            // each role has its own home page
-            redirect($user['role'] === 'accounts' ? 'approvals.php' : 'index.php');
+            // index.php is the certificate register, which management may not
+            // open - landing them there would bounce them straight to the
+            // dashboard and look like the sign-in had failed. So they are sent
+            // where they are going. Everybody else lands exactly where they did.
+            redirect(($user['role'] ?? '') === 'management' ? 'dashboard.php' : 'index.php');
         }
         usleep(400000);
         $error = 'Wrong username or password.';
     }
 }
 
-layout_top('Sign in');
+layout_top('');
 ?>
 <style>
     .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
@@ -62,7 +65,7 @@ layout_top('Sign in');
     <?php endif; ?>
 
     <div class="vfy">
-    <h1 class="vfy-title"><?= $as === 'accounts' ? 'Accounts' : 'Administrator' ?> Module</h1>
+    <h1 class="vfy-title">Staff Module</h1>
     <p class="vfy-sub">Sign In to Continue</p>
         <form method="post" class="narrow">
             <input type="hidden" name="csrf" value="<?= e($token) ?>">
