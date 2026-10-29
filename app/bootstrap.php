@@ -11,6 +11,12 @@ $config = require APP_DIR . '/config.php';
 
 require_once APP_DIR . '/qr.php';
 
+// The PDF renderer. certificate_pdf() and tracking_pdf() call pdf_engine() and
+// pdf_render_certificate() from here, and both run from pages that only ever
+// load this file - so if this line is missing, downloading a certificate dies
+// with "Call to undefined function pdf_engine()".
+require_once APP_DIR . '/pdf.php';
+
 // ----------------------------------------------------------------- database
 
 function db(): PDO
