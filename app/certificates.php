@@ -3,6 +3,7 @@
  * Everything to do with issuing a certificate, drawing the sheet and making the PDF.
  */
 declare(strict_types=1);
+require_once __DIR__ . '/clients.php';
 
 /** Next certificate number. Locks the counter so two users can never get the same one. */
 function next_certificate_number(): int
@@ -33,144 +34,6 @@ function company_details(): array
         'kebs_permit' => setting('kebs_permit', ''),
         'stamp_image' => setting('stamp_image', ''),
     ];
-}
-
-/**
- * Create a certificate from one form submission.
- *
- * Client, vehicle, device and installation are created if they are new and reused if they
- * already exist, so staff only ever fill in one form. Everything printed on the sheet is
- * copied into the snapshot, so a reprint years later shows exactly what was issued.
- */
-function create_certificate(array $in, array $user): array
-{
-    $pdo = db();
-    $pdo->beginTransaction();
-    try {
-        // Vehicle first. If it is already on file, its certificates stay with the
-        // owner already recorded against it - otherwise a slightly different
-        // spelling of the company name creates a second client row and splits
-        // that client's history, so the portal shows only half of it.
-        $vehicle = q("SELECT * FROM vehicles
-               WHERE regexp_replace(upper(reg_no), '[^A-Z0-9]', '', 'g') = ?
-               LIMIT 1", [plate_key($in['reg_no'])])->fetch();
-        if ($vehicle) {
-            $clientId = (int)$vehicle['client_id'];
-            q('UPDATE clients SET name = ?, phone = ?, address = ?, updated_at = now() WHERE id = ?',
-                [$in['client_name'], $in['client_phone'], $in['client_address'], $clientId]);
-        } else {
-            // New vehicle: match an existing client on phone, else name.
-            $client = q('SELECT * FROM clients WHERE lower(name) = lower(?) OR (phone <> \'\' AND phone = ?)',
-                [$in['client_name'], $in['client_phone']])->fetch();
-            if ($client) {
-                q('UPDATE clients SET name = ?, phone = ?, address = ?, updated_at = now() WHERE id = ?',
-                    [$in['client_name'], $in['client_phone'], $in['client_address'], $client['id']]);
-                $clientId = (int)$client['id'];
-            } else {
-                $clientId = (int)q('INSERT INTO clients (name, phone, address) VALUES (?, ?, ?) RETURNING id',
-                    [$in['client_name'], $in['client_phone'], $in['client_address']])->fetchColumn();
-            }
-        }
-
-        // vehicle record (registration number is unique)
-        if ($vehicle) {
-            q('UPDATE vehicles SET make = ?, chassis_no = ? WHERE id = ?',
-                [$in['make'], $in['chassis_no'], $vehicle['id']]);
-            $vehicleId = (int)$vehicle['id'];
-        } else {
-            $vehicleId = (int)q('INSERT INTO vehicles (client_id, reg_no, make, chassis_no)
-                                 VALUES (?, upper(?), ?, ?) RETURNING id',
-                [$clientId, $in['reg_no'], $in['make'], $in['chassis_no']])->fetchColumn();
-        }
-
-        // device (serial number is unique)
-        $device = q('SELECT * FROM devices WHERE serial_no = ?', [$in['serial_no']])->fetch();
-        if ($device) {
-            q('UPDATE devices SET model = ?, set_speed_kmh = ? WHERE id = ?',
-                [$in['device_model'], (int)$in['set_speed_kmh'], $device['id']]);
-            $deviceId = (int)$device['id'];
-        } else {
-            $deviceId = (int)q('INSERT INTO devices (model, serial_no, set_speed_kmh)
-                                VALUES (?, ?, ?) RETURNING id',
-                [$in['device_model'], $in['serial_no'], (int)$in['set_speed_kmh']])->fetchColumn();
-        }
-
-        // installation
-        $installation = q('SELECT * FROM installations
-                           WHERE vehicle_id = ? AND device_id = ? AND removed_on IS NULL',
-            [$vehicleId, $deviceId])->fetch();
-        if ($installation) {
-            $installationId = (int)$installation['id'];
-        } else {
-            $installationId = (int)q('INSERT INTO installations (vehicle_id, device_id, technician, installed_on)
-                                      VALUES (?, ?, ?, ?) RETURNING id',
-                [$vehicleId, $deviceId, $in['technician'], $in['installed_on']])->fetchColumn();
-        }
-
-        $token = bin2hex(random_bytes(4));
-        $snapshot = [
-            'company' => company_details(),
-            'signatory' => [
-                'name' => setting('signatory_name', ''),
-                'title' => setting('signatory_title', ''),
-                'signature_image' => setting('signature_image', ''),
-            ],
-            'cert' => [
-                'number' => '',//filled in when accounts approves
-                'type' => $in['type'],
-                'is_renewal' => $in['type'] === 'Renewal',
-                'issue_date_fmt' => fmt_date($in['issue_date']),
-                'expiry_date_fmt' => fmt_date($in['expiry_date']),
-                'validity_months' => (int)$in['validity_months'],
-            ],
-            'client' => [
-                'name' => $in['client_name'],
-                'phone' => $in['client_phone'],
-                'address' => $in['client_address'],
-            ],
-            'vehicle' => [
-                'reg_no' => strtoupper($in['reg_no']),
-                'make' => $in['make'],
-                'chassis_no' => $in['chassis_no'],
-            ],
-            'device' => [
-                'model' => $in['device_model'],
-                'serial_no' => $in['serial_no'],
-                // the cards print this; the separate unit code was dropped, so it is the serial number
-                'unit_code' => $in['serial_no'],
-                'set_speed_kmh' => (int)$in['set_speed_kmh'],
-            ],
-            'installation' => [
-                'installed_on_fmt' => fmt_date($in['installed_on']),
-                'technician' => $in['technician'],
-            ],
-        ];
-
-        $id = (int)q("INSERT INTO certificates
-              (type, client_id, vehicle_id, device_id, installation_id, issue_date, expiry_date,
-               snapshot, verify_token, issued_by, approval_status)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending') RETURNING id", [
-            $in['type'], $clientId, $vehicleId, $deviceId, $installationId,
-            $in['issue_date'], $in['expiry_date'],
-            json_encode($snapshot), $token, $user['id'],
-        ])->fetchColumn();
- 
-        // Nothing is superseded here. The vehicle's current certificate stays live
-        // until accounts approves this one, so a client renewing early is never
-        // left with no downloadable certificate while payment is being confirmed.
-
-        // A vehicle has one current certificate: retire any earlier ones.
-        q("UPDATE certificates SET status = 'superseded'
-           WHERE vehicle_id = ? AND id <> ? AND status = 'issued'", [$vehicleId, $id]);
-
-        $pdo->commit();
-    } catch (Throwable $err) {
-        $pdo->rollBack();
-        throw $err;
-    }
-
-    audit('issue_certificate', 'certificate', $id, ['status' => 'pending approval']);
-    return q('SELECT * FROM certificates WHERE id = ?', [$id])->fetch();
 }
 
 /** Public address a QR code points to. */
@@ -326,30 +189,6 @@ function extract_payment_ref(string $text): string
         }
     }
     return '';
-}
-
-function certificate_status(array $cert): string
-{
-    // Approval comes first: an unapproved certificate is not valid whatever its dates say.
-    $approval = $cert['approval_status'] ?? 'approved';
-    if ($approval === 'pending') {
-        return 'Pending approval';
-    }
-    if ($approval === 'rejected') {
-        return 'Rejected';
-    }
-    if ($cert['status'] === 'voided') {
-        return 'Voided';
-    }
-    if ($cert['status'] === 'superseded') {
-        return 'Replaced';
-    }
-    // Paid for early: approved and numbered, but its cover has not begun. Not
-    // downloadable until it does - the certificate in force today is the old one.
-    if (strtotime($cert['issue_date']) > strtotime(date('Y-m-d'))) {
-        return 'Scheduled';
-    }
-    return strtotime($cert['expiry_date']) < strtotime(date('Y-m-d')) ? 'Expired' : 'Valid';
 }
 
 /** Only an approved, current, unexpired certificate may be printed or downloaded. */
@@ -570,4 +409,819 @@ function renewal_start_date(string $currentExpiry, ?string $today = null): strin
     }
 
     return $today;
+}
+
+
+/**
+ * Three functions to ADD to the end of app/certificates.php.
+ *
+ * Paste everything below the line, inside the file, after the last existing
+ * function. Nothing in the file changes.
+ *
+ * They are the governor twin of what app/tracking.php already has for trackers:
+ * tracking_imei_in_use(), remove_tracking_unit() and tracking_device_history().
+ * Same rules, same words, same reasoning - because a sealed governor and a
+ * tracker are the same kind of thing. One box, one lorry, and a record of when
+ * it moved.
+ *
+ * Run sql/migration_governor_removal.sql first: these write a 'removed' status
+ * the certificates table will otherwise refuse.
+ */
+
+// ===========================================================================
+// PASTE FROM HERE
+// ===========================================================================
+
+/**
+ * The certificate that currently holds this governor serial, or null.
+ *
+ * Read the row's approval_status to tell the two cases apart - they need
+ * different words, not different rules:
+ *
+ *   approved + issued   the governor is in that lorry now
+ *   pending             a certificate awaiting accounts has already claimed it
+ *
+ * ---------------------------------------------------------------------------
+ * Pending certificates count, and that is the whole point
+ * ---------------------------------------------------------------------------
+ * A certificate sitting with accounts is a CLAIM on that box. If a second
+ * certificate is raised for another lorry with the same serial while the first
+ * is waiting, both pass the check, both reach accounts, and both get approved -
+ * two lorries certified as holding one sealed governor, which is exactly what
+ * this exists to prevent. The window is however long accounts take, so days.
+ *
+ * Rejected certificates are excluded: that claim was turned down. Removed,
+ * voided and superseded are excluded too - the box has left, the certificate was
+ * an error, or it is a renewal of the same lorry where the governor never moved.
+ *
+ * "Approved" deliberately does NOT mean unexpired. An expired certificate whose
+ * governor was never removed still means the box is in that lorry.
+ *
+ * ---------------------------------------------------------------------------
+ * $exceptReg, and why leaving it out would break every renewal
+ * ---------------------------------------------------------------------------
+ * A governor certificate is renewed on this same form, with type = Renewal, and
+ * a renewal has the SAME box in the SAME lorry - that is what makes it a
+ * renewal. So the lorry's own current certificate always holds that serial, and
+ * a check that did not know which lorry was being certified would refuse every
+ * renewal GAPTECH ever raises.
+ *
+ * Pass the registration being certified and its own certificates stop counting.
+ * Matched on letters and digits only, the same rule the rest of this system
+ * uses, so KDK017N and KDK 017N are one lorry.
+ */
+function governor_serial_in_use(string $serial, ?int $exceptCertId = null,
+                                ?string $exceptReg = null): ?array
+{
+    $serial = trim($serial);
+    if ($serial === '') {
+        return null;
+    }
+
+    $reg = trim((string)$exceptReg);
+
+    $row = q("SELECT c.*, v.reg_no, cl.name AS client_name, d.serial_no
+                FROM certificates c
+                JOIN devices  d  ON d.id  = c.device_id
+                JOIN vehicles v  ON v.id  = c.vehicle_id
+                LEFT JOIN clients cl ON cl.id = c.client_id
+               WHERE upper(trim(d.serial_no)) = upper(?)
+                 AND c.approval_status IN ('approved', 'pending')
+                 AND c.status = 'issued'
+                 -- cast needed: PostgreSQL cannot infer the type of a parameter
+                 -- that only ever appears in an IS NULL test
+                 AND (?::int IS NULL OR c.id <> ?::int)
+                 -- the lorry being certified does not clash with itself
+                 AND (? = '' OR regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g')
+                             <> regexp_replace(upper(?), '[^A-Z0-9]', '', 'g'))
+               -- an approved claim outranks a pending one, so the message names
+               -- the lorry the box is actually in when both exist
+               ORDER BY (c.approval_status = 'approved') DESC,
+                        c.issue_date DESC, c.id DESC
+               LIMIT 1", [$serial, $exceptCertId, $exceptCertId, $reg, $reg])->fetch();
+
+    return $row ?: null;
+}
+
+/**
+ * Record that the governor has been taken off this lorry.
+ *
+ * The certificate is kept, with the date and the reason. The lorry stops being
+ * covered from that moment, because there is no longer a sealed box in it.
+ *
+ * TWO things are closed, and both are needed:
+ *
+ *   the certificate      what the customer holds, and what the registers,
+ *                        the dashboard and the renewal lists read
+ *   the installation row what the NEXT certificate for this serial is checked
+ *                        against - create_certificate() looks for an
+ *                        installation "WHERE ... AND removed_on IS NULL"
+ *
+ * Closing only the first would leave the serial looking fitted to the old lorry
+ * forever. Closing only the second would leave a lorry reading "covered" with no
+ * governor in it.
+ */
+function remove_governor_unit(array $cert, array $user, string $reason, string $when = ''): array
+{
+    $reason = trim($reason);
+    if ($reason === '') {
+        throw new RuntimeException('Say why the governor is being removed.');
+    }
+
+    if (($cert['approval_status'] ?? '') !== 'approved') {
+        throw new RuntimeException('Only a released certificate can have its governor '
+            . 'removed. A pending one should be sent back instead.');
+    }
+    if (($cert['status'] ?? '') === 'removed') {
+        throw new RuntimeException('That governor is already recorded as removed.');
+    }
+    if (in_array($cert['status'] ?? '', ['voided', 'superseded'], true)) {
+        throw new RuntimeException('That certificate is already ' . $cert['status']
+            . ', so there is nothing to remove from it.');
+    }
+
+    $when = trim($when) !== '' ? $when : date('Y-m-d');
+    if (strtotime($when) === false) {
+        throw new RuntimeException('That removal date is not a date.');
+    }
+
+    // The fitting date comes from the installation, not from the certificate -
+    // a renewal reuses the installation, so the certificate's issue date can be
+    // years after the box went on.
+    $fitted = q('SELECT installed_on FROM installations WHERE id = ?',
+                [(int)$cert['installation_id']])->fetchColumn();
+
+    if ($fitted && strtotime($when) < strtotime((string)$fitted)) {
+        throw new RuntimeException('The governor cannot be removed before it was fitted ('
+            . fmt_date((string)$fitted) . ').');
+    }
+    if (strtotime($when) > strtotime(date('Y-m-d'))) {
+        throw new RuntimeException('A removal cannot be dated in the future.');
+    }
+
+    $day = date('Y-m-d', strtotime($when));
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        q("UPDATE certificates
+              SET status = 'removed', removed_on = ?, removed_reason = ?, removed_by = ?
+            WHERE id = ?", [$day, $reason, (int)$user['id'], (int)$cert['id']]);
+
+        // The other half. Guarded by removed_on IS NULL so running this twice
+        // cannot move a date that was already recorded by somebody else.
+        q("UPDATE installations
+              SET removed_on = ?
+            WHERE id = ? AND removed_on IS NULL", [$day, (int)$cert['installation_id']]);
+
+        $pdo->commit();
+    } catch (Throwable $err) {
+        $pdo->rollBack();
+        throw $err;
+    }
+
+    audit('remove_governor_unit', 'certificate', (int)$cert['id'], [
+        'reg_no'      => $cert['reg_no'] ?? '',
+        'serial_no'   => $cert['serial_no'] ?? '',
+        'removed_on'  => $day,
+        'reason'      => $reason,
+        'cover_ended' => $cert['expiry_date'] ?? '',   // what the customer gave up
+    ]);
+
+    return q('SELECT * FROM certificates WHERE id = ?', [(int)$cert['id']])->fetch();
+}
+
+/**
+ * Everywhere this governor has been, newest first.
+ *
+ * The question anybody holding a box in their hand asks. Renewals of the same
+ * lorry are included - they are part of the unit's life even though it did not
+ * move - so the caller can show them or fold them up as it likes.
+ */
+function governor_device_history(string $serial): array
+{
+    $serial = trim($serial);
+    if ($serial === '') {
+        return [];
+    }
+
+    return q("SELECT c.id, c.number, c.status, c.approval_status, c.issue_date,
+                     c.expiry_date, c.removed_on, c.removed_reason,
+                     v.reg_no, cl.name AS client_name, i.installed_on
+                FROM certificates c
+                JOIN devices  d ON d.id = c.device_id
+                JOIN vehicles v ON v.id = c.vehicle_id
+                LEFT JOIN clients       cl ON cl.id = c.client_id
+                LEFT JOIN installations i  ON i.id  = c.installation_id
+               WHERE upper(trim(d.serial_no)) = upper(?)
+               ORDER BY c.issue_date DESC, c.id DESC", [$serial])->fetchAll();
+}
+
+
+/**
+ * Two functions to REPLACE in app/certificates.php, and three small changes
+ * elsewhere. All of it is one bug.
+ *
+ * ---------------------------------------------------------------------------
+ * What went wrong
+ * ---------------------------------------------------------------------------
+ * The last change added a new value to certificates.status - 'removed' - and
+ * taught the database to store it, but did not teach the code that READS it.
+ *
+ * certificate_status() knows about voided, superseded, scheduled and expired.
+ * Anything else falls through to the last line and comes back "Valid". So the
+ * removal was recorded correctly and the lorry still showed a valid
+ * certificate: 13770 (KDY 3456E) and 13771 (KDJ466X) both reading Valid, both
+ * on serial 39493489, which is exactly the double-booking the check exists to
+ * prevent.
+ *
+ * The tracking side already handles this - tracking_status() has returned
+ * 'Unit removed' since the unit-removal work. The governor twin was not
+ * updated to match. That is my miss, and this is it put right.
+ *
+ * ---------------------------------------------------------------------------
+ * Before you change anything: what does 13770 actually say?
+ * ---------------------------------------------------------------------------
+ * This tells you whether the removal was recorded and only displayed wrong, or
+ * never recorded at all. The two have different fixes:
+ *
+ *   SELECT c.number, c.status, c.removed_on, c.removed_reason,
+ *          v.reg_no, d.serial_no, i.removed_on AS fitting_closed
+ *     FROM certificates c
+ *     JOIN vehicles v ON v.id = c.vehicle_id
+ *     JOIN devices  d ON d.id = c.device_id
+ *     LEFT JOIN installations i ON i.id = c.installation_id
+ *    WHERE c.number IN (13770, 13771);
+ *
+ *   status = 'removed'  -> it worked; these files fix the display
+ *   status = 'issued'   -> the tick never took effect. Send me this output and
+ *                          do not apply the SQL at the bottom.
+ */
+
+// ===========================================================================
+// 1. app/certificates.php - REPLACE both of these functions
+// ===========================================================================
+
+/**
+ * The state of a certificate, as one word.
+ *
+ * The order matters: a certificate can be more than one of these at once, and
+ * the first match wins. Removed is tested before expiry because a governor that
+ * came off in March is not "expired" in April - it is gone, and saying expired
+ * invites somebody to renew it.
+ */
+function certificate_status(array $cert): string
+{
+    if ($cert['status'] === 'voided') {
+        return 'Voided';
+    }
+    // Added. Without this line a removed certificate falls through to the last
+    // line of this function and comes back "Valid", which is how one serial
+    // ended up reading valid on two lorries at once.
+    if (($cert['status'] ?? '') === 'removed') {
+        return 'Unit removed';
+    }
+    if ($cert['status'] === 'superseded') {
+        return 'Superseded';
+    }
+    // Paid for and numbered, but its cover has not begun. Not downloadable until
+    // it does - the certificate in force today is the one before it.
+    if (strtotime($cert['issue_date']) > strtotime(date('Y-m-d'))) {
+        return 'Scheduled';
+    }
+    return strtotime($cert['expiry_date']) < strtotime(date('Y-m-d')) ? 'Expired' : 'Valid';
+}
+
+/** The same state, written for a human. */
+function certificate_status_label(array $cert): string
+{
+    $status = certificate_status($cert);
+
+    if ($status === 'Scheduled') {
+        return 'Starts ' . fmt_date((string)$cert['issue_date']);
+    }
+    // "Unit removed 9 November 2026" answers the next question in the same
+    // breath, the way the tracking label already does.
+    if ($status === 'Unit removed' && !empty($cert['removed_on'])) {
+        return 'Unit removed ' . fmt_date((string)$cert['removed_on']);
+    }
+
+    return $status;
+}
+
+/*
+ ===========================================================================
+ 2. public/certificate_view.php - ONE line
+ ===========================================================================
+
+ Find:
+
+     $superseded = ($cert['status'] ?? '') === 'superseded';
+     $inForce    = $approved && !$voided && !$superseded && !$replacement;
+
+ Replace with:
+
+     $superseded = ($cert['status'] ?? '') === 'superseded';
+     $unitGone   = ($cert['status'] ?? '') === 'removed';
+     $inForce    = $approved && !$voided && !$superseded && !$replacement && !$unitGone;
+
+ Without it the removed certificate keeps its Renew and Withdraw buttons and
+ stays printable - a certificate offering to renew cover for a box that is now
+ in somebody else's lorry.
+
+ ===========================================================================
+ 3. public/dashboard.php - ONE line
+ ===========================================================================
+
+ Find (the governor half of the cover query):
+
+     WHERE c.approval_status = 'approved' AND c.status <> 'voided'
+
+ Replace with:
+
+     WHERE c.approval_status = 'approved' AND c.status NOT IN ('voided', 'removed')
+
+ The tracking half of the same query already reads NOT IN ('voided', 'removed').
+ This makes the governor half agree with it, so a lorry whose governor has been
+ taken off stops being counted as covered.
+
+ ===========================================================================
+ 4. public/index.php - the register, so removed certificates are findable
+ ===========================================================================
+
+ The Valid and Expired tabs are already correct: both test status = 'issued',
+ so a removed certificate drops out of them on its own. But with no tab of its
+ own it can only be found under All. Three small edits:
+
+ (a) Find:
+
+     if (!in_array($status, ['all', 'pending', 'valid', 'expired', 'superseded', 'voided', 'rejected'], true)) {
+
+     Add 'removed':
+
+     if (!in_array($status, ['all', 'pending', 'valid', 'expired', 'superseded', 'removed', 'voided', 'rejected'], true)) {
+
+ (b) Find:
+
+     } elseif ($status === 'superseded') {
+         $where[] = "c.status = 'superseded'";
+
+     Add after that block:
+
+     } elseif ($status === 'removed') {
+         $where[] = "c.status = 'removed'";
+
+ (c) Find:
+
+     count(*) FILTER (WHERE status = 'superseded') AS superseded_count,
+
+     Add after it:
+
+     count(*) FILTER (WHERE status = 'removed') AS removed_count,
+
+     and find:
+
+     'superseded' => ['Superseded', $counts['superseded_count']],
+
+     Add after it:
+
+     'removed' => ['Unit removed', $counts['removed_count']],
+*/
+
+
+/**
+ * Two functions to ADD to the end of app/certificates.php.
+ *
+ * Paste everything below the line, inside the file, after the last existing
+ * function. Nothing already in the file changes.
+ *
+ * They answer the two questions the governor form could not ask before:
+ *
+ *   plate_on_file()    what is this registration already, and is it covered?
+ *   chassis_on_file()  is this chassis number already a DIFFERENT lorry?
+ *
+ * ---------------------------------------------------------------------------
+ * Both normalise, and both normalise the same way
+ * ---------------------------------------------------------------------------
+ * Letters and digits only, in capitals - the rule reg_key already uses, so
+ * KDY3456E finds KDY 3456E and MXAA542003017 finds MXAA54-2003017.
+ *
+ * A check that only matches an exact string is worse than no check: it passes
+ * silently on the one case it exists to catch, because the second person to
+ * type a number rarely punctuates it the way the first did.
+ */
+
+// ===========================================================================
+// PASTE FROM HERE
+// ===========================================================================
+
+/**
+ * What this registration already is, and whether it is covered right now.
+ *
+ * Returns the vehicle with its owner and its certificate in force, or null if
+ * the plate is new. 'cert_number' is null when the lorry is on file but has no
+ * certificate in force - a lapsed vehicle coming back, which is the ordinary
+ * way a renewal starts.
+ *
+ * Used to tell somebody three things while they type: whose lorry this is, what
+ * chassis is on file for it, and whether raising a Fitting is about to replace
+ * cover that is still running.
+ */
+function plate_on_file(string $reg): ?array
+{
+    $reg = trim($reg);
+    if ($reg === '') {
+        return null;
+    }
+
+    $row = q("SELECT v.id, v.reg_no, v.make, v.chassis_no,
+                     cl.name AS client_name, cl.phone AS client_phone,
+                     cur.number     AS cert_number,
+                     cur.id         AS cert_id,
+                     cur.expiry_date,
+                     cur.status     AS cert_status
+                FROM vehicles v
+                LEFT JOIN clients cl ON cl.id = v.client_id
+                LEFT JOIN LATERAL (
+                     SELECT c.id, c.number, c.expiry_date, c.status
+                       FROM certificates c
+                      WHERE c.vehicle_id = v.id
+                        AND c.approval_status = 'approved'
+                        AND c.status = 'issued'
+                        AND c.issue_date <= current_date
+                      ORDER BY c.issue_date DESC, c.number DESC
+                      LIMIT 1
+                ) cur ON true
+               WHERE regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g')
+                   = regexp_replace(upper(?),        '[^A-Z0-9]', '', 'g')
+               LIMIT 1", [$reg])->fetch();
+
+    return $row ?: null;
+}
+
+/**
+ * The governor currently fitted to this lorry, or null.
+ *
+ * An installation row with no removed_on: the box is on the vehicle as far as
+ * this system knows. Returns the device with it, so the caller can compare the
+ * serial about to be certified against the one already there.
+ *
+ * ---------------------------------------------------------------------------
+ * Why this is needed at all
+ * ---------------------------------------------------------------------------
+ * A lorry gets a different governor when the old one fails. Nothing in
+ * create_certificate() notices: it looks for an installation of THIS vehicle
+ * with THIS device, finds none, and creates a new row. The faulty unit's row is
+ * left open forever, so the lorry ends up with two governors recorded as fitted
+ * and no trace of why the first one was swapped.
+ *
+ * ORDER BY installed_on DESC is deliberate. If stale rows already exist from
+ * before this check, the newest is the one actually on the vehicle.
+ */
+function vehicle_current_unit(string $reg): ?array
+{
+    $reg = trim($reg);
+    if ($reg === '') {
+        return null;
+    }
+
+    $row = q("SELECT i.id AS installation_id, i.installed_on, i.technician,
+                     d.id AS device_id, d.serial_no, d.model,
+                     v.id AS vehicle_id, v.reg_no
+                FROM installations i
+                JOIN vehicles v ON v.id = i.vehicle_id
+                JOIN devices  d ON d.id = i.device_id
+               WHERE i.removed_on IS NULL
+                 AND regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g')
+                   = regexp_replace(upper(?),        '[^A-Z0-9]', '', 'g')
+               ORDER BY i.installed_on DESC, i.id DESC
+               LIMIT 1", [$reg])->fetch();
+
+    return $row ?: null;
+}
+
+/**
+ * Record that a lorry's governor was swapped for a different one.
+ *
+ * Closes the OLD installation row, which is the only thing that says the faulty
+ * box came off. The old certificate is not touched here: create_certificate()
+ * supersedes it a moment later, which is the right relationship - this lorry has
+ * newer cover - and 'removed' would wrongly suggest the lorry is uncovered.
+ *
+ * The reason lives in the audit log rather than on a row, because there is no
+ * column on an installation for it and inventing one to hold a sentence nobody
+ * prints would be the wrong trade.
+ */
+function swap_governor_unit(array $current, array $user, string $reason,
+                            string $when, string $newSerial): void
+{
+    $reason = trim($reason);
+    if ($reason === '') {
+        throw new RuntimeException('Say why the governor is being replaced.');
+    }
+
+    $when = trim($when) !== '' ? $when : date('Y-m-d');
+    if (strtotime($when) === false) {
+        throw new RuntimeException('That installation date is not a date.');
+    }
+    if (strtotime($when) < strtotime((string)$current['installed_on'])) {
+        throw new RuntimeException('The new governor cannot be fitted before the old one was ('
+            . fmt_date((string)$current['installed_on']) . ').');
+    }
+
+    $day = date('Y-m-d', strtotime($when));
+
+    // Guarded by removed_on IS NULL so running this twice cannot move a date
+    // somebody else already recorded.
+    q("UPDATE installations SET removed_on = ? WHERE id = ? AND removed_on IS NULL",
+      [$day, (int)$current['installation_id']]);
+
+    audit('swap_governor_unit', 'vehicle', (int)$current['vehicle_id'], [
+        'reg_no'     => $current['reg_no'],
+        'old_serial' => $current['serial_no'],
+        'new_serial' => $newSerial,
+        'fitted_on'  => $current['installed_on'],
+        'removed_on' => $day,
+        'reason'     => $reason,
+    ]);
+}
+
+/**
+ * The OTHER lorry already carrying this chassis number, or null.
+ *
+ * A chassis number is the one thing about a lorry that cannot change, so the
+ * same chassis under two registrations is one of two things:
+ *
+ *   a typo              somebody keyed a digit wrong, and a certificate is
+ *                       about to be issued against the wrong vehicle
+ *   a re-plate          the lorry really did get a new number plate, which
+ *                       happens, and is the case the override tick is for
+ *
+ * The registration being certified is passed in and excluded, so a lorry never
+ * clashes with itself - without that, every renewal would report its own
+ * chassis as a duplicate.
+ */
+function chassis_on_file(string $chassis, ?string $exceptReg = null): ?array
+{
+    $chassis = trim($chassis);
+    if ($chassis === '') {
+        return null;
+    }
+
+    // A chassis of one or two characters is somebody halfway through typing,
+    // not a number. Matching on it would flag half the fleet.
+    if (strlen(preg_replace('/[^A-Za-z0-9]/', '', $chassis)) < 4) {
+        return null;
+    }
+
+    $reg = trim((string)$exceptReg);
+
+    $row = q("SELECT v.id, v.reg_no, v.make, v.chassis_no,
+                     cl.name AS client_name
+                FROM vehicles v
+                LEFT JOIN clients cl ON cl.id = v.client_id
+               WHERE regexp_replace(upper(v.chassis_no), '[^A-Z0-9]', '', 'g')
+                   = regexp_replace(upper(?),            '[^A-Z0-9]', '', 'g')
+                 AND (? = '' OR regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g')
+                             <> regexp_replace(upper(?),        '[^A-Z0-9]', '', 'g'))
+               ORDER BY v.id
+               LIMIT 1", [$chassis, $reg, $reg])->fetch();
+
+    return $row ?: null;
+}
+
+
+/**
+ * The whole of create_certificate(), with both outstanding changes already made.
+ *
+ * In app/certificates.php: find the line
+ *
+ *     function create_certificate(array $in, array $user): array
+ *
+ * and replace everything from there down to its closing brace - the line with a
+ * single } just before the next function - with the function below.
+ *
+ * ALSO add this near the top of app/certificates.php, with the other requires:
+ *
+ *     require_once __DIR__ . '/clients.php';
+ *
+ * ---------------------------------------------------------------------------
+ * The four changes, each marked CHANGED in the body
+ * ---------------------------------------------------------------------------
+ *
+ * 1. The client is found with client_match() instead of
+ *
+ *        WHERE lower(name) = lower(?) OR (phone <> '' AND phone = ?)
+ *
+ *    That phone test was exact string equality, and the phones in this system are
+ *    stored with spaces. Typing 0702118004 where the file says "0702 118 004"
+ *    matched nothing and created a SECOND client - vehicles on one row, portal
+ *    login on the other, and a client signing in to an empty portal.
+ *
+ *    client_match() compares the normalised number first and the name with case
+ *    and punctuation ignored, so the import, the New client form and this
+ *    function all decide "same client" the same way. Two rules in two places is
+ *    how the duplicate gets in.
+ *
+ * 2. The vehicle is found with vehicle_match() instead of
+ *
+ *        WHERE upper(reg_no) = upper(?)
+ *
+ *    The same bug, one table over. Every registration on file is stored with a
+ *    space - "KDA 107G" - so "KDA107G" typed on the form matched nothing and
+ *    created a second vehicle for the same lorry. Worse than a duplicate client:
+ *    the supersede at the end of this function retires earlier certificates for
+ *    THIS vehicle_id, so the split quietly leaves two live certificates on one
+ *    lorry.
+ *
+ * 3. The installation date in the snapshot comes from the installation ROW that
+ *    was actually used, not from whatever the caller passed.
+ *
+ *    A renewal reuses the existing installation, so $in['installed_on'] is
+ *    ignored when the row already exists - but the snapshot went on printing $in
+ *    regardless. The certificate could say one fitting date while the database
+ *    held another, and the certificate is the thing in the glovebox.
+ *
+ *    A first fitting is unaffected: the row was just created from these very
+ *    values, so reading them back changes nothing.
+ *
+ * 4. The old certificate is no longer retired when a new one is RAISED. It is
+ *    retired when the new one is APPROVED, which is when it becomes true.
+ *
+ *    Every certificate starts pending, so the old rule took a lorry's valid
+ *    certificate away the moment somebody began a renewal: no cover on the
+ *    register, none on the dashboard, and the customer's portal telling them
+ *    they had none - for as long as accounts took. If the new one was then
+ *    rejected, nothing ever put the old one back.
+ *
+ * Nothing else in the function has moved.
+ */
+
+/**
+ * Raise a certificate.
+ *
+ * Client, vehicle, device and installation are created if they are new and reused if they
+ * already exist, so staff only ever fill in one form. Everything printed on the sheet is
+ * copied into the snapshot, so a reprint years later shows exactly what was issued.
+ */
+function create_certificate(array $in, array $user): array
+{
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        // ---------------------------------------------------------- CHANGED (1)
+        // One matcher, shared with the CSV import and the New client form:
+        // normalised phone first, then the name with case and punctuation ignored.
+        $client = client_match($in['client_name'], $in['client_phone']);
+
+        if ($client) {
+            q('UPDATE clients SET name = ?, phone = ?, address = ?, updated_at = now() WHERE id = ?',
+                [$in['client_name'], $in['client_phone'], $in['client_address'], $client['id']]);
+            $clientId = (int)$client['id'];
+        } else {
+            $clientId = (int)q('INSERT INTO clients (name, phone, address) VALUES (?, ?, ?) RETURNING id',
+                [$in['client_name'], $in['client_phone'], $in['client_address']])->fetchColumn();
+        }
+
+        // ---------------------------------------------------------- CHANGED (2)
+        // The vehicle, found the same way everywhere: letters and digits only.
+        //
+        // This used to be upper(reg_no) = upper(?), and every registration on file
+        // is stored with a space - "KDA 107G". So typing "KDA107G" on this form
+        // matched nothing and created a SECOND vehicle for the same lorry. The
+        // certificates then split across two rows, the fleet count goes wrong, and
+        // the supersede at the bottom of this function - which retires earlier
+        // certificates for THIS vehicle_id - stops seeing the other half.
+        $vehicle = vehicle_match($in['reg_no']);
+        if ($vehicle) {
+            q('UPDATE vehicles SET client_id = ?, make = ?, chassis_no = ? WHERE id = ?',
+                [$clientId, $in['make'], $in['chassis_no'], $vehicle['id']]);
+            $vehicleId = (int)$vehicle['id'];
+        } else {
+            // plate_display() so a solid "kda107g" is stored "KDA 107G", the way
+            // every other row in this table is written.
+            $vehicleId = (int)q('INSERT INTO vehicles (client_id, reg_no, make, chassis_no)
+                                 VALUES (?, ?, ?, ?) RETURNING id',
+                [$clientId, plate_display($in['reg_no']), $in['make'], $in['chassis_no']])
+                ->fetchColumn();
+        }
+
+        // device (serial number is unique)
+        $device = q('SELECT * FROM devices WHERE serial_no = ?', [$in['serial_no']])->fetch();
+        if ($device) {
+            q('UPDATE devices SET model = ?, set_speed_kmh = ? WHERE id = ?',
+                [$in['device_model'], (int)$in['set_speed_kmh'], $device['id']]);
+            $deviceId = (int)$device['id'];
+        } else {
+            $deviceId = (int)q('INSERT INTO devices (model, serial_no, set_speed_kmh)
+                                VALUES (?, ?, ?) RETURNING id',
+                [$in['device_model'], $in['serial_no'], (int)$in['set_speed_kmh']])->fetchColumn();
+        }
+
+        // installation
+        $installation = q('SELECT * FROM installations WHERE vehicle_id = ? AND device_id = ? AND removed_on IS NULL',
+            [$vehicleId, $deviceId])->fetch();
+        if ($installation) {
+            $installationId = (int)$installation['id'];
+        } else {
+            $installationId = (int)q('INSERT INTO installations (vehicle_id, device_id, technician, installed_on)
+                                      VALUES (?, ?, ?, ?) RETURNING id',
+                [$vehicleId, $deviceId, $in['technician'], $in['installed_on']])->fetchColumn();
+        }
+
+        // ---------------------------------------------------------- CHANGED (3)
+        // Whatever row we ended up with IS the record of when this unit was fitted
+        // to this vehicle. A renewal reuses it, which means $in['installed_on'] was
+        // ignored just above - so the snapshot must not go and print $in anyway,
+        // or the certificate and the database disagree about a date the
+        // certificate is the evidence for.
+        $fitted = q('SELECT installed_on, technician FROM installations WHERE id = ?',
+                    [$installationId])->fetch() ?: [];
+
+        if (!empty($fitted['installed_on'])) {
+            $in['installed_on'] = $fitted['installed_on'];
+        }
+        if (!empty($fitted['technician'])) {
+            $in['technician'] = $fitted['technician'];
+        }
+
+        $number = next_certificate_number();
+        $token = bin2hex(random_bytes(4));
+        $snapshot = [
+            'company' => company_details(),
+            'signatory' => [
+                'name' => setting('signatory_name', ''),
+                'title' => setting('signatory_title', ''),
+                'signature_image' => setting('signature_image', ''),
+            ],
+            'cert' => [
+                'number' => (string)$number,
+                'type' => $in['type'],
+                'is_renewal' => $in['type'] === 'Renewal',
+                'issue_date_fmt' => fmt_date($in['issue_date']),
+                'expiry_date_fmt' => fmt_date($in['expiry_date']),
+                'validity_months' => (int)$in['validity_months'],
+            ],
+            'client' => [
+                'name' => $in['client_name'],
+                'phone' => $in['client_phone'],
+                'address' => $in['client_address'],
+            ],
+            'vehicle' => [
+                'reg_no' => strtoupper($in['reg_no']),
+                'make' => $in['make'],
+                'chassis_no' => $in['chassis_no'],
+            ],
+            'device' => [
+                'model' => $in['device_model'],
+                'serial_no' => $in['serial_no'],
+                // the cards print this; the separate unit code was dropped, so it is the serial number
+                'unit_code' => $in['serial_no'],
+                'set_speed_kmh' => (int)$in['set_speed_kmh'],
+            ],
+            'installation' => [
+                'installed_on_fmt' => fmt_date($in['installed_on']),
+                'technician' => $in['technician'],
+            ],
+        ];
+
+        $id = (int)q('INSERT INTO certificates
+              (number, type, client_id, vehicle_id, device_id, installation_id, issue_date, expiry_date,
+               receipt_ref, snapshot, verify_token, issued_by)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id', [
+            $number, $in['type'], $clientId, $vehicleId, $deviceId, $installationId,
+            $in['issue_date'], $in['expiry_date'], $in['receipt_ref'] ?? '',
+            json_encode($snapshot), $token, $user['id'],
+        ])->fetchColumn();
+
+        // ---------------------------------------------------------- CHANGED (4)
+        // The old certificate is NOT retired here any more.
+        //
+        // This used to run, unconditionally, the moment a certificate was raised:
+        //
+        //     UPDATE certificates SET status = 'superseded'
+        //      WHERE vehicle_id = ? AND id <> ? AND status = 'issued'
+        //
+        // Every certificate starts pending - accounts have not seen it yet - so
+        // raising one took the lorry's VALID certificate away immediately. For
+        // however long approval takes, the register showed no certificate in
+        // force, the dashboard stopped counting the lorry as covered, and the
+        // customer's portal told them they had none.
+        //
+        // Worse if the new one is rejected: nothing ever runs to put the old one
+        // back, so the lorry loses a certificate it still holds, silently and
+        // permanently.
+        //
+        // approve_certificate() already does this properly, at the moment it
+        // becomes true, and date-aware so an early renewal does not retire cover
+        // that is still running. One place deciding it is the point.
+
+
+        $pdo->commit();
+    } catch (Throwable $err) {
+        $pdo->rollBack();
+        throw $err;
+    }
+
+    audit('issue_certificate', 'certificate', $id, ['number' => $number]);
+    return q('SELECT * FROM certificates WHERE id = ?', [$id])->fetch();
 }

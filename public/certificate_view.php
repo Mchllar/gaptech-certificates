@@ -196,7 +196,16 @@ if ($approved && !$live && !$voided && function_exists('certificate_current_for_
 // Expired is deliberately NOT in that list. A lapsed vehicle coming back is the
 // ordinary way a renewal starts, so an expired certificate keeps its Renew button.
 $superseded = ($cert['status'] ?? '') === 'superseded';
-$inForce    = $approved && !$voided && !$superseded && !$replacement;
+
+// The governor has been taken off this lorry and fitted to another one. The
+// certificate stays - it is the record of a fitting that really happened - but
+// it is not in force, because there is no sealed box in the vehicle any more.
+//
+// Left out of $inForce, this certificate would keep its Renew and Withdraw
+// buttons and stay printable: an offer to renew cover for a unit that is now in
+// somebody else's lorry.
+$unitGone   = ($cert['status'] ?? '') === 'removed';
+$inForce    = $approved && !$voided && !$superseded && !$replacement && !$unitGone;
 
 /** Snapshot first, live row second: what was printed beats what has changed since. */
 $snap = function (array $path, $fallback = '') use ($d) {
@@ -214,8 +223,8 @@ $label = function_exists('certificate_label')
     ? certificate_label($cert)
     : ($cert['number'] ? 'No. ' . $cert['number'] : 'Draft ' . $cert['id']);
 
-layout_top('');
-layout_back('index.php', 'Back to SG. Certificates');
+layout_top('Certificate ' . $label);
+layout_back('index.php', 'Back to certificates');
 ?>
 
 <h1><?= e($label) ?>
@@ -280,26 +289,26 @@ layout_back('index.php', 'Back to SG. Certificates');
   <tr><th>Vehicle</th><td><?= e($snap(['vehicle', 'reg_no'], $cert['reg_no'])) ?></td>
       <th>Make</th><td><?= e($snap(['vehicle', 'make'], $cert['make'])) ?></td></tr>
   <tr><th>Chassis no.</th><td><?= e($snap(['vehicle', 'chassis_no'], $cert['chassis_no'])) ?></td>
-      <th>Serial no.</th><td><?= e($snap(['device', 'serial_no'], $cert['serial_no'])) ?></td>
-  </tr>
-  <tr>
+      <th>Set speed</th>
+      <td><?= e($snap(['device', 'set_speed_kmh'], $cert['set_speed_kmh'])) ?> km/h</td></tr>
+  <tr><th>Governor</th><td><?= e($snap(['device', 'model'], $cert['device_model'])) ?></td>
+      <th>Serial no.</th><td><?= e($snap(['device', 'serial_no'], $cert['serial_no'])) ?></td></tr>
   <tr><th>Customer</th><td><?= e($snap(['client', 'name'], $cert['client_name'])) ?></td>
       <th>Contact</th><td><?= e($snap(['client', 'phone'], $cert['client_phone'])) ?></td></tr>
-  <tr>
-      <th>Type</th><td><?= e($snap(['cert', 'type'], $cert['type'])) ?></td>
-      <th>Installed on</th><td><?= e($snap(['installation', 'installed_on_fmt'], '—')) ?></td>
-  </tr>
+  <tr><th>Address</th><td><?= e($snap(['client', 'address'], $cert['client_address'])) ?></td>
+      <th>Type</th><td><?= e($snap(['cert', 'type'], $cert['type'])) ?></td></tr>
+  <tr><th>Installed</th><td><?= e($snap(['installation', 'installed_on_fmt'], '—')) ?></td>
+      <th>Technician</th><td><?= e($snap(['installation', 'technician'], '—')) ?></td></tr>
   <?php if (!$rejected): ?>
     <tr><th>Issued</th><td><?= e(fmt_date($cert['issue_date'])) ?></td>
-        <th>Expires</th><td><?= e(fmt_date($cert['expiry_date'])) ?></td>
-    </tr>
+        <th>Expires</th><td><?= e(fmt_date($cert['expiry_date'])) ?></td></tr>
   <?php endif; ?>
   <tr><th>Raised by</th><td><?= e($cert['issued_by_name'] ?? '—') ?></td>
       <th>Raised on</th>
       <td><?= e(fmt_date(substr((string)($cert['issued_at'] ?? $cert['issue_date']), 0, 10))) ?></td></tr>
   <?php if ($approved): ?>
-    <tr><th>Approved by</th><td><?= e($cert['decided_by_name'] ?? '—') ?></td>
-        <th>Approved on</th>
+    <tr><th>Released by</th><td><?= e($cert['decided_by_name'] ?? '—') ?></td>
+        <th>Released on</th>
         <td><?= e(fmt_date(substr((string)$cert['approved_at'], 0, 10))) ?></td></tr>
   <?php endif; ?>
 </table>

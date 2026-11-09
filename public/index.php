@@ -17,7 +17,8 @@ $isAdm = ($user['role'] ?? '') === 'administrator';
 
 $search = trim((string)($_GET['q'] ?? ''));
 $status = (string)($_GET['status'] ?? 'all');
-if (!in_array($status, ['all', 'pending', 'valid', 'expired', 'superseded', 'voided', 'rejected'], true)) {
+if (!in_array($status, ['all', 'pending', 'valid', 'expired', 'superseded', 'removed',
+                        'voided', 'rejected'], true)) {
     $status = 'all';
 }
 $perPage = (int)($_GET['per'] ?? 25);
@@ -54,6 +55,10 @@ if ($status === 'pending') {
     $where[] = "c.approval_status = 'approved' AND c.status = 'issued' AND c.expiry_date < current_date";
 } elseif ($status === 'superseded') {
     $where[] = "c.status = 'superseded'";
+} elseif ($status === 'removed') {
+    // Valid and Expired both test status = 'issued', so these drop out of them
+    // on their own. This is so they can still be found.
+    $where[] = "c.status = 'removed'";
 } elseif ($status === 'voided') {
     $where[] = "c.status = 'voided'";
 }
@@ -82,6 +87,7 @@ $counts = q("SELECT
     count(*) FILTER (WHERE approval_status = 'approved' AND status = 'issued'
                      AND expiry_date < current_date) AS expired_count,
     count(*) FILTER (WHERE status = 'superseded') AS superseded_count,
+    count(*) FILTER (WHERE status = 'removed') AS removed_count,
     count(*) FILTER (WHERE status = 'voided') AS voided_count
     FROM certificates")->fetch();
 
@@ -109,23 +115,10 @@ $expiring = q("SELECT c.id, c.number, c.expiry_date, v.reg_no, cl.name AS client
                ORDER BY c.expiry_date")->fetchAll();
 }
 
-layout_top('');
+layout_top('Governor Installations');
 ?>
-<style>
-    .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
-        /* ---- a little wider once there is room ---- */
-    .vfy h1.vfy-title {
-        margin: 0 0 6px;
-        font-size: 22px; font-weight: 700; letter-spacing: -.4px;
-        line-height: 1.25; color: #0D4F72;
-        padding-left: 12px; border-left: 4px solid #8CC63F;
-    }
-    @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
-    .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5;}
-</style>
-<div class="vfy">
-<h1 class="vfy-title">Speed Governor Installations</h1>
-<p class="vfy-sub">Search, filter and review the speed governor certificates.</p>
+<h1>Governor Installations</h1>
+<p class="page-intro">Search, filter and review the speed governor certificates.</p>
 
 <?php if ((int)$counts['pending_count'] > 0): ?>
   <p class="hint" style="text-align:left">
@@ -146,16 +139,17 @@ layout_top('');
     <a class="button" href="certificate_new.php">New certificate</a>
   <?php endif; ?>
 </form>
-  </div>
+
 <div class="filters">
   <?php foreach ([
       'all' => ['All', $counts['all_count']],
       'pending' => ['Pending', $counts['pending_count']],
       'valid' => ['Valid', $counts['valid_count']],
       'expired' => ['Expired', $counts['expired_count']],
-      'superseded' => ['Replaced', $counts['superseded_count']],
+      'superseded' => ['Superseded', $counts['superseded_count']],
+      'removed' => ['Unit removed', $counts['removed_count']],
       'rejected' => ['Rejected', $counts['rejected_count']],
-      'voided' => ['Withdrawn', $counts['voided_count']],
+      'voided' => ['Voided', $counts['voided_count']],
   ] as $key => $info): ?>
     <a class="chip <?= $status === $key ? 'chip-on' : '' ?>"
        href="<?= e(page_link(['status' => $key, 'page' => 1])) ?>">
@@ -174,7 +168,10 @@ layout_top('');
     <td><?= e($row['type']) ?></td>
     <td><?= e(fmt_date($row['issue_date'])) ?></td>
     <td><?= e(fmt_date($row['expiry_date'])) ?></td>
-    <td class="status-<?= strtolower(certificate_status($row)) ?>"><?= e(certificate_status($row)) ?></td>
+    <?php /* class from the token, words from the label: "Starts 1 Dec 2026", not "Scheduled". */ ?>
+    <td class="status-<?= strtolower(str_replace(' ', '-', certificate_status($row))) ?>"><?=
+      e(function_exists('certificate_status_label')
+          ? certificate_status_label($row) : certificate_status($row)) ?></td>
     <td><a href="certificate_view.php?id=<?= (int)$row['id'] ?>">
       <?= $row['approval_status'] === 'pending' && !$isAdm ? 'Review' : 'Open' ?></a></td>
   </tr>

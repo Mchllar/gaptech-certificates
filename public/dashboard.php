@@ -87,7 +87,11 @@ WITH gov AS (
     FROM certificates c
     JOIN vehicles v ON v.id = c.vehicle_id
     LEFT JOIN clients cl ON cl.id = c.client_id
-   WHERE c.approval_status = 'approved' AND c.status <> 'voided'
+   -- 'removed' belongs here beside 'voided': a lorry whose governor has been
+   -- taken off is not covered, whatever its certificate's expiry date says. The
+   -- tracking half of this query below has read NOT IN ('voided','removed')
+   -- since the unit-removal work; this is the governor half catching up.
+   WHERE c.approval_status = 'approved' AND c.status NOT IN ('voided', 'removed')
      AND c.issue_date <= current_date
    ORDER BY c.vehicle_id, c.issue_date DESC, c.number DESC
 )";
@@ -216,7 +220,7 @@ if ($hasTracking) {
 $byClient = [];
 foreach (q("SELECT cl.name, count(*) AS n
               FROM certificates c JOIN clients cl ON cl.id = c.client_id
-             WHERE c.approval_status = 'approved' AND c.status <> 'voided'
+             WHERE c.approval_status = 'approved' AND c.status NOT IN ('voided', 'removed')
              GROUP BY cl.name")->fetchAll() as $r) {
     $key = mb_strtoupper(trim((string)$r['name']));
     $byClient[$key] ??= ['name' => trim((string)$r['name']), 'gov' => 0, 'trk' => 0];

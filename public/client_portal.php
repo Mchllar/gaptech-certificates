@@ -264,7 +264,7 @@ $chips = [
     'all'       => 'All vehicles',
 ];
 
-layout_top('My Vehicles', 'client');
+layout_top('My vehicles', 'client');
 ?>
 
 <!-- FLASH -->
@@ -281,6 +281,7 @@ layout_top('My Vehicles', 'client');
 
   <header class="fl-head">
     <div>
+      <h1>My vehicles</h1>
       <p class="fl-sub"><?= e($client['name']) ?> &middot;
          <?= (int)$counts['all'] ?> vehicle<?= $counts['all'] === 1 ? '' : 's' ?></p>
     </div>
@@ -327,7 +328,9 @@ layout_top('My Vehicles', 'client');
       vehicle<?= $dueSoon === 1 ? ' needs' : 's need' ?> renewing.
     <?php endif; ?>
     To renew, call GAPTECH on
-    <strong><?= e(setting('cell', '')) ?></strong>
+    <strong><?= e(setting('cell', '')) ?></strong>.
+    We will confirm the tracking device is transmitting, agree the price with you,
+    and send you the payment details.
   </p>
 
   <?php if (!$shown): ?>
@@ -403,7 +406,16 @@ layout_top('My Vehicles', 'client');
             <?php elseif ($v['state'] === 'none'): ?>
               <span class="fl-dim">&mdash;</span>
             <?php elseif ($v['last_cover']): ?>
-              <span class="fl-dim">ended <?= e(fmt_date($v['last_cover']['expiry_date'])) ?></span>
+              <?php /*
+                A governor taken off the lorry ends the cover that day, whatever
+                the certificate's expiry says. Printing the expiry here would
+                show the customer a date in the FUTURE next to the word "ended" -
+                which reads as "still covered until then", the opposite of true.
+              */ ?>
+              <span class="fl-dim">ended <?= e(fmt_date(
+                  !empty($v['last_cover']['removed_on'])
+                      ? $v['last_cover']['removed_on']
+                      : $v['last_cover']['expiry_date'])) ?></span>
             <?php else: ?>
               <span class="fl-dim">&mdash;</span>
             <?php endif; ?>
@@ -496,7 +508,7 @@ layout_top('My Vehicles', 'client');
     justify-content: space-between; gap: 16px; margin: 0 0 18px;
   }
   #fleet h1 { margin: 0; font-size: 24px; font-weight: 700; color: #0D4F72; }
-  #fleet .fl-sub { margin: 4px 0 0; font-size: 20px; color: #0D4F72; }
+  #fleet .fl-sub { margin: 4px 0 0; font-size: 14px; color: #5C6775; }
 
   #fleet .fl-sr {
     position: absolute; width: 1px; height: 1px; overflow: hidden;
