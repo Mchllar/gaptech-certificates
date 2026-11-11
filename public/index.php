@@ -38,11 +38,34 @@ $where = [];
 $params = [];
 
 if ($search !== '') {
-    $where[] = '(v.reg_no ILIKE ? OR cl.name ILIKE ? OR CAST(c.number AS text) LIKE ?)';
     $like = '%' . $search . '%';
+
+    // The registration and the serial are matched on letters and digits only,
+    // on BOTH sides, which is the rule the rest of this system already uses:
+    //
+    //   typing  KDA107G       finds  KDA 107G
+    //   typing  6038 124 225  finds  6038124225
+    //
+    // The old search compared the registration as plain text, so KDA107G found
+    // nothing at all while the same search worked on the tracking register.
+    // A name or a certificate number has no such rule, so those stay as they
+    // were.
+    $key = preg_replace('/[^A-Za-z0-9]/', '', $search);
+
+    $clauses  = ['cl.name ILIKE ?', 'CAST(c.number AS text) LIKE ?'];
     $params[] = $like;
     $params[] = $like;
-    $params[] = $like;
+
+    // Skipped when the search is only punctuation: '%%' would match every row
+    // and turn a nonsense search into "everything".
+    if ($key !== '') {
+        $clauses[] = "regexp_replace(upper(v.reg_no),    '[^A-Z0-9]', '', 'g') LIKE ?";
+        $clauses[] = "regexp_replace(upper(d.serial_no), '[^A-Z0-9]', '', 'g') LIKE ?";
+        $params[]  = '%' . strtoupper($key) . '%';
+        $params[]  = '%' . strtoupper($key) . '%';
+    }
+
+    $where[] = '(' . implode(' OR ', $clauses) . ')';
 }
 
 if ($status === 'pending') {
@@ -65,9 +88,14 @@ if ($status === 'pending') {
 
 $whereSql = $where ? 'WHERE ' . implode(' AND ', $where) : '';
 
+// devices is LEFT joined purely so the search can reach the serial number. LEFT
+// rather than JOIN because a certificate with no device row must still appear in
+// the register - a plain JOIN would silently drop it from every list and every
+// count, and nobody would know rows were missing.
 $from = 'FROM certificates c
          JOIN vehicles v ON v.id = c.vehicle_id
-         JOIN clients cl ON cl.id = c.client_id';
+         JOIN clients cl ON cl.id = c.client_id
+         LEFT JOIN devices d ON d.id = c.device_id';
 
 $total  = (int)q("SELECT count(*) $from $whereSql", $params)->fetchColumn();
 $pages  = max(1, (int)ceil($total / $perPage));
@@ -128,7 +156,8 @@ layout_top('Governor Installations');
 <?php endif; ?>
 
 <form method="get" class="searchbar">
-  <input name="q" value="<?= e($search) ?>" placeholder="Registration number, customer or certificate number">
+  <input name="q" value="<?= e($search) ?>"
+         placeholder="Registration, serial no., customer or certificate number">
   <input type="hidden" name="status" value="<?= e($status) ?>">
   <input type="hidden" name="per" value="<?= e((string)$perPage) ?>">
   <button type="submit">Search</button>

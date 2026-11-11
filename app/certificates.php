@@ -36,14 +36,67 @@ function company_details(): array
     ];
 }
 
-/** Public address a QR code points to. */
+
+/**
+ * Public address a QR code points to.
+ *
+ * This used to be rtrim($config['base_url'], '/') and nothing else, so an empty
+ * base_url produced "/verify.php?c=13772-3bc5e442" - a path with no host. A
+ * phone camera has nothing to resolve that against, so the code scans to
+ * nothing, and it is printed on the certificate before anybody can tell.
+ *
+ * base_url is the right answer and the ONLY one that can name an address a
+ * customer's phone can reach. There is one fallback, and it is narrow:
+ *
+ *   1. base_url                 what it is for - set this
+ *   2. the host of THIS request, if it is not a loopback address
+ *
+ * and when neither yields anything, this returns an empty string and the sheet
+ * prints no QR code at all.
+ *
+ * ---------------------------------------------------------------------------
+ * Why there is no third guess
+ * ---------------------------------------------------------------------------
+ * There was one: SERVER_ADDR, the machine's own address. It came back as ::1 -
+ * Apache answering over IPv6 loopback - and produced
+ * "http://::1/gaptech-certificates/..." on a printed certificate: not merely
+ * unreachable but malformed, since an IPv6 literal has to be bracketed.
+ *
+ * The machine genuinely cannot work out what address a customer will reach it
+ * on. Guessing produces a QR code that scans to something, which is worse than
+ * one that is absent, because absent gets noticed and wrong does not.
+ */
 function verify_url(array $cert): string
 {
     global $config;
-    return rtrim($config['base_url'], '/') . '/verify.php?c=' . $cert['number'] . '-' . $cert['verify_token'];
+ 
+    $base = rtrim(trim((string)($config['base_url'] ?? '')), '/');
+ 
+    if ($base === '') {
+        // The host the browser actually used. For a member of staff on the
+        // office network that is reachable by definition - it is how they got
+        // here. For headless Chrome rendering the PDF it is loopback, which is
+        // reachable by nobody, so it is refused below.
+        $host = (string)($_SERVER['HTTP_HOST'] ?? '');
+        $bare = strtolower(trim((string)preg_replace('/:\d+$/', '', $host), '[]'));
+ 
+        $loopback = $bare === 'localhost'
+                 || $bare === '::1'
+                 || $bare === '0:0:0:0:0:0:0:1'
+                 || strncmp($bare, '127.', 4) === 0;
+ 
+        if ($host === '' || $loopback) {
+            return '';          // nothing honest to point at
+        }
+ 
+        $https  = (($_SERVER['HTTPS'] ?? '') !== '' && ($_SERVER['HTTPS'] ?? '') !== 'off');
+        $script = (string)($_SERVER['SCRIPT_NAME'] ?? '');
+        $dir    = $script !== '' ? rtrim(str_replace('\\', '/', dirname($script)), '/') : '';
+        $base   = ($https ? 'https' : 'http') . '://' . $host . $dir;
+    }
+ 
+    return $base . '/verify.php?c=' . $cert['number'] . '-' . $cert['verify_token'];
 }
-
-
  
 function certificate_number_svg(?string $number): string
 {
@@ -671,25 +724,36 @@ function governor_device_history(string $serial): array
  */
 function certificate_status(array $cert): string
 {
+    // Defaulting to 'approved' keeps old rows that predate the approval work
+    // reading as they always did, rather than silently becoming pending.
+    $approval = $cert['approval_status'] ?? 'approved';
+ 
+    if ($approval === 'pending') {
+        return 'Pending approval';
+    }
+    if ($approval === 'rejected') {
+        return 'Rejected';
+    }
+ 
     if ($cert['status'] === 'voided') {
         return 'Voided';
     }
-    // Added. Without this line a removed certificate falls through to the last
-    // line of this function and comes back "Valid", which is how one serial
-    // ended up reading valid on two lorries at once.
     if (($cert['status'] ?? '') === 'removed') {
         return 'Unit removed';
     }
     if ($cert['status'] === 'superseded') {
         return 'Superseded';
     }
+ 
     // Paid for and numbered, but its cover has not begun. Not downloadable until
     // it does - the certificate in force today is the one before it.
     if (strtotime($cert['issue_date']) > strtotime(date('Y-m-d'))) {
         return 'Scheduled';
     }
+ 
     return strtotime($cert['expiry_date']) < strtotime(date('Y-m-d')) ? 'Expired' : 'Valid';
 }
+ 
 
 /** The same state, written for a human. */
 function certificate_status_label(array $cert): string

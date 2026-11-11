@@ -46,15 +46,25 @@ if ($gtInitials === '') {
 ?>
 <header class="gt-topbar">
   <div class="gt-top-left">
+    <?php /*
+      The company logo, replacing GAP/TECH set in type.
+
+      Its own file, not the sidebar's logo_header.png: that one is a wordmark
+      drawn for a 186px column and this one is a horizontal lockup for a 62px
+      bar. Separate files mean changing one cannot quietly restyle the other.
+
+      The red tagline is cropped out. At this height it would render two or
+      three pixels tall, which is a smudge rather than words.
+    */ ?>
     <span class="gt-top-mark">
-      <span class="gt-m1">GAP</span><span class="gt-m2">TECH</span>
-      <small>Certificates</small>
+      <img src="assets/logo_topbar.png" alt="GAPTECH Solutions Ltd">
+      <!-- <small>Certificates</small> -->
     </span>
 
-    <?php if ($gtTitle !== ''): ?>
+    <!-- <?php if ($gtTitle !== ''): ?>
       <span class="gt-top-rule"></span>
-      <h1 style="margin: 0; font-size: 16px; font-weight: 650; color: #1d5a16"; class="gt-top-title"><?= e($gtTitle) ?></h1>
-    <?php endif; ?>
+      <h1 class="gt-top-title"><?= e($gtTitle) ?></h1>
+    <?php endif; ?> -->
   </div>
 
   <div class="gt-top-right">
@@ -102,17 +112,16 @@ if ($gtInitials === '') {
    * a positioning context, a pointer cursor, and the panel that drops out of it.
    */
   /*
-   * The brand mark, pinned. topbar.css paints it with var(--gt-green) and
-   * var(--gt-navy); something else on the page defines those as a dark colour,
-   * so the fallbacks never get used and GAPTECH comes out all one shade. Two
-   * classes beat one, and there is no variable left to override.
+   * The two colour overrides that used to live here are gone with the spans
+   * they painted. They existed because something else on the page redefined
+   * --gt-green and --gt-navy as a dark colour, so GAPTECH came out all one
+   * shade. An image cannot be repainted by a stray variable, so the whole
+   * problem goes with it.
    */
-  .gt-topbar .gt-top-mark .gt-m1 { color: #8CC63F; }
-  .gt-topbar .gt-top-mark .gt-m2 { color: #0D4F72; }
- 
+
   #gt-account { position: relative; cursor: pointer; }
   #gt-account:focus-visible { outline: 2px solid #1890D0; outline-offset: 3px; border-radius: 10px; }
- 
+
   #gt-account .gt-acct-menu {
     position: absolute; top: calc(100% + 10px); right: 0; z-index: 2100;
     min-width: 230px; padding: 14px 0 6px;
@@ -121,7 +130,7 @@ if ($gtInitials === '') {
     text-align: left; cursor: default;
   }
   #gt-account .gt-acct-menu[hidden] { display: none; }
- 
+
   #gt-account .gt-acct-head {
     margin: 0 16px 4px; font-size: 11.5px; font-weight: 700; letter-spacing: .5px;
     text-transform: uppercase; color: #8793A3;
@@ -132,9 +141,9 @@ if ($gtInitials === '') {
   #gt-account .gt-acct-handle {
     margin: 2px 16px 0; font-size: 13.5px; color: #5C6775; word-break: break-all;
   }
- 
+
   #gt-account .gt-acct-sep { height: 1px; margin: 12px 0 6px; background: #EDF2F7; }
- 
+
   #gt-account .gt-acct-item {
     display: block; padding: 9px 16px;
     font-size: 14.5px; color: #1C2430; text-decoration: none;
@@ -142,12 +151,12 @@ if ($gtInitials === '') {
   #gt-account .gt-acct-item:hover { background: #F2F7FB; color: #0D4F72; }
   #gt-account .gt-acct-out { color: #C3121A; }
   #gt-account .gt-acct-out:hover { background: #FBE9E9; color: #A50F16; }
- 
+
   @media (max-width: 640px) {
     #gt-account .gt-acct-menu { min-width: 200px; }
   }
 </style>
- 
+
 <script>
 (function () {
   var box  = document.getElementById('gt-account');

@@ -17,7 +17,8 @@ $isAdm = $user['role'] === 'administrator';
 
 $search = trim((string)($_GET['q'] ?? ''));
 $status = (string)($_GET['status'] ?? 'all');
-if (!in_array($status, ['all', 'pending', 'valid', 'expired', 'superseded', 'voided', 'rejected'], true)) {
+if (!in_array($status, ['all', 'pending', 'valid', 'expired', 'superseded', 'removed',
+                        'voided', 'rejected'], true)) {
     $status = 'all';
 }
 $perPage = (int)($_GET['per'] ?? 10);
@@ -37,14 +38,22 @@ $params = [];
 
 if ($search !== '') {
     // Registration is matched on letters and digits only, so KDF745B finds KDF 745B.
+    //
+    // The unit number is now matched the same way. It was compared as raw text,
+    // so an IMEI pasted out of a spreadsheet or a WhatsApp message with spaces
+    // in it - "865784 052222222" - found nothing, which on screen looks exactly
+    // like the unit not being in the system. Stripping both sides means the
+    // punctuation stops mattering on either.
     $where[] = "(regexp_replace(upper(t.reg_no), '[^A-Z0-9]', '', 'g') LIKE ?
                  OR t.client_name ILIKE ? OR CAST(t.number AS text) LIKE ?
                  OR EXISTS (SELECT 1 FROM tracking_imeis i
-                             WHERE i.cert_id = t.id AND i.imei LIKE ?))";
+                             WHERE i.cert_id = t.id
+                               AND regexp_replace(upper(i.imei), '[^A-Z0-9]', '', 'g')
+                                   LIKE ?))";
     $params[] = '%' . plate_key($search) . '%';
     $params[] = '%' . $search . '%';
     $params[] = '%' . $search . '%';
-    $params[] = '%' . $search . '%';
+    $params[] = '%' . strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $search)) . '%';
 }
 
 if ($status === 'pending') {
@@ -57,6 +66,10 @@ if ($status === 'pending') {
     $where[] = "t.approval_status = 'approved' AND t.status = 'issued' AND t.expiry_date < current_date";
 } elseif ($status === 'superseded') {
     $where[] = "t.status = 'superseded'";
+} elseif ($status === 'removed') {
+    // Valid and Expired both test status = 'issued', so these drop out of them
+    // on their own. This is so they can still be found.
+    $where[] = "t.status = 'removed'";
 } elseif ($status === 'voided') {
     $where[] = "t.status = 'voided'";
 }
@@ -80,6 +93,7 @@ $counts = q("SELECT
     count(*) FILTER (WHERE approval_status = 'approved' AND status = 'issued'
                      AND expiry_date < current_date) AS expired_count,
     count(*) FILTER (WHERE status = 'superseded') AS superseded_count,
+    count(*) FILTER (WHERE status = 'removed') AS removed_count,
     count(*) FILTER (WHERE status = 'voided') AS voided_count
     FROM tracking_certificates")->fetch();
 
@@ -108,45 +122,32 @@ if ($isAdm) {
                    ORDER BY expiry_date")->fetchAll();
 }
 
-layout_top('');
+layout_top('Installations');
 ?>
-<style>
-    .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
-        /* ---- a little wider once there is room ---- */
-    .vfy h1.vfy-title {
-        margin: 0 0 6px;
-        font-size: 22px; font-weight: 700; letter-spacing: -.4px;
-        line-height: 1.25; color: #0D4F72;
-        padding-left: 12px; border-left: 4px solid #8CC63F;
-    }
-    @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
-    .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5;}
-</style>
-<div class="vfy">
-  <h1 class="vfy-title">Tracking Installations</h1>
-  <p class="vfy-sub">Search, filter and review the tracker installation certificates.</p>
-  <?php if ((int)$counts['pending_count'] > 0): ?>
-    <p class="vfy-sub" style="text-align:left">
-      <?= (int)$counts['pending_count'] ?> certificate<?= $counts['pending_count'] == 1 ? '' : 's' ?>
-      waiting for accounts to confirm payment. They have no serial number and cannot be
-      printed or downloaded until approved.
-    </p>
-  <?php endif; ?>
+<h1>Tracking Installations</h1>
 
-  <form method="get" class="searchbar">
-    <input name="q" value="<?= e($search) ?>"
-          placeholder="Registration, customer, IMEI or serial number">
-    <input type="hidden" name="status" value="<?= e($status) ?>">
-    <input type="hidden" name="per" value="<?= e((string)$perPage) ?>">
-    <button type="submit">Search</button>
-    <?php if ($search !== ''): ?>
-      <a class="button secondary" href="<?= e(trk_link(['q' => '', 'page' => 1])) ?>">Clear</a>
-    <?php endif; ?>
-    <?php if ($isAdm): ?>
-      <a class="button" href="tracking_new.php">New installation</a>
-    <?php endif; ?>
-  </form>
-</div>
+<?php if ((int)$counts['pending_count'] > 0): ?>
+  <p class="hint" style="text-align:left">
+    <?= (int)$counts['pending_count'] ?> certificate<?= $counts['pending_count'] == 1 ? '' : 's' ?>
+    waiting for accounts to confirm payment. They have no serial number and cannot be
+    printed or downloaded until approved.
+  </p>
+<?php endif; ?>
+
+<form method="get" class="searchbar">
+  <input name="q" value="<?= e($search) ?>"
+         placeholder="Registration, customer, IMEI or serial number">
+  <input type="hidden" name="status" value="<?= e($status) ?>">
+  <input type="hidden" name="per" value="<?= e((string)$perPage) ?>">
+  <button type="submit">Search</button>
+  <?php if ($search !== ''): ?>
+    <a class="button secondary" href="<?= e(trk_link(['q' => '', 'page' => 1])) ?>">Clear</a>
+  <?php endif; ?>
+  <?php if ($isAdm): ?>
+    <a class="button" href="tracking_new.php">New installation</a>
+  <?php endif; ?>
+</form>
+
 <div class="filters">
   <?php foreach ([
       'all'        => ['All', $counts['all_count']],
@@ -154,6 +155,7 @@ layout_top('');
       'valid'      => ['Valid', $counts['valid_count']],
       'expired'    => ['Expired', $counts['expired_count']],
       'superseded' => ['Superseded', $counts['superseded_count']],
+      'removed' => ['Unit removed', $counts['removed_count']],
       'rejected'   => ['Rejected', $counts['rejected_count']],
       'voided'     => ['Voided', $counts['voided_count']],
   ] as $key => $info): ?>
@@ -216,7 +218,7 @@ layout_top('');
 </div>
 
 <?php if ($isAdm): ?>
-<h2>Expiring in the next 30 days</h2>
+<h2>Subscriptions expiring in the next 30 days</h2>
 <table>
   <tr><th>Expires</th><th>Serial</th><th>Vehicle</th><th>Customer</th><th></th></tr>
   <?php foreach ($expiring as $row): ?>

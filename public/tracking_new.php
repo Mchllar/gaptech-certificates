@@ -24,6 +24,14 @@ $form = [
     'subscription_date' => $today,
     'term_months' => '12',
     'expiry_date' => default_expiry($today, 12),
+
+    // Ticked when a unit is being taken off another vehicle and put on this one.
+    // One pair PER SLOT, because the two boxes can come from two different
+    // vehicles and each closes a different certificate with its own reason.
+    // See the note above the IMEI check further down - a tick does not switch
+    // the check off, it closes the other certificate.
+    'moved_1' => '', 'moved_reason_1' => '',
+    'moved_2' => '', 'moved_reason_2' => '',
 ];
 
 /** Every certificate is signed by the same person, so this is a setting, not a field. */
@@ -55,6 +63,11 @@ if (!empty($_GET['reg']) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
         $form['reg_no'] = mb_strtoupper(trim((string)$_GET['reg']), 'UTF-8');
     }
 }
+
+// What each IMEI slot is already held by, so a form redrawn after an error shows
+// the tick box under the box that caused it. Empty on a fresh form; the browser
+// reveals them as the IMEIs are typed.
+$clash = [1 => null, 2 => null];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrf_check();
@@ -152,10 +165,73 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     //
     // So it blocks rather than warns, and says exactly which certificate to go and
     // close off first.
+    //
+    // ---------------------------------------------------------------------
+    // "Unit moved from another vehicle"
+    // ---------------------------------------------------------------------
+    // The tick box does NOT switch this check off. Letting somebody past it
+    // would leave two live certificates on one box, which is the single thing
+    // this whole check exists to prevent - and a box that makes the rule
+    // optional is a rule that stops being true.
+    //
+    // What it does instead is the thing that actually happened in the yard: the
+    // unit came off the other vehicle and nobody recorded it. So ticking it
+    // records that removal, through the same remove_tracking_unit() the removal
+    // screen uses, with the same reason and the same audit entry. The register
+    // ends up saying what is true, and this certificate can then be raised
+    // because the clash is genuinely gone.
+    //
+    // A reason is required for exactly the same purpose it is required there: in
+    // six months the only way to tell a moved unit from a mistyped IMEI is what
+    // somebody wrote down at the time.
+    //
+    // ---------------------------------------------------------------------
+    // One tick PER SLOT
+    // ---------------------------------------------------------------------
+    // Two recovered units can come off two different vehicles onto this one, so
+    // there are two ticks and two reasons. Each closes a different certificate,
+    // and the reason is written onto that certificate - a single shared box
+    // would put one vehicle's explanation on another vehicle's record.
+    //
+    // Each appears only when ITS OWN unit actually clashes. A tick box sitting
+    // there permanently is one that eventually gets ticked out of habit.
+    $toClose = [];
+
     if (!$errors && function_exists('tracking_imei_in_use')) {
-        foreach ([$form['imei'], $form['imei_2']] as $slot) {
+        // function_exists guards the whole move path: if app/tracking.php is ever
+        // an older copy without the removal work in it, the tick boxes quietly do
+        // nothing and the block holds. Failing closed is the only safe direction
+        // for a control whose job is to prevent a silent double-booking.
+        $canMove = function_exists('remove_tracking_unit');
+
+        foreach ([1 => $form['imei'], 2 => $form['imei_2']] as $n => $slot) {
             $held = $slot !== '' ? tracking_imei_in_use($slot) : null;
-            if ($held && ($held['approval_status'] ?? '') === 'pending') {
+            if (!$held) {
+                continue;
+            }
+
+            $clash[$n] = $held;
+            $moving    = $canMove && $form['moved_' . $n] !== '';
+            $why       = trim($form['moved_reason_' . $n]);
+
+            // An approved certificate can be closed off, and that is what the tick
+            // box is for. A pending one cannot: it is sitting in the accounts
+            // queue, and quietly removing the unit from a certificate somebody is
+            // about to approve would leave them releasing cover for a vehicle the
+            // box is no longer in. That one has to be approved or sent back by a
+            // person, so the block stays whether or not the box is ticked.
+            if ($moving && ($held['approval_status'] ?? '') === 'approved') {
+                if ($why === '') {
+                    $errors[] = 'Say why unit ' . $slot . ' is being moved. It is recorded '
+                        . 'on ' . $held['reg_no'] . "'s certificate as the reason the "
+                        . 'tracker came off.';
+                } else {
+                    $toClose[$n] = ['held' => $held, 'why' => $why];
+                }
+                continue;
+            }
+
+            if (($held['approval_status'] ?? '') === 'pending') {
                 // Nothing has been issued yet, so "still fitted" would be wrong.
                 // The claim is real all the same: approve both and two vehicles
                 // end up holding one box.
@@ -164,10 +240,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     . fmt_date(substr((string)$held['issued_at'], 0, 10)) . ').'
                     . ' That one has to be approved or sent back before this unit can be '
                     . 'used somewhere else.';
-            } elseif ($held) {
+            } else {
                 $errors[] = 'Unit ' . $slot . ' is still recorded as fitted to '
                     . $held['reg_no'] . ' (certificate ' . tracking_label($held) . ').'
-                    . ' Record its removal on that certificate first, then raise this one.';
+                    . ' If it has been moved to this vehicle, tick "Unit moved from another'
+                    . ' vehicle" under that box and say why, and that certificate will be'
+                    . ' closed off. Otherwise check the number - a mistyped IMEI looks'
+                    . ' exactly like this.';
             }
         }
     }
@@ -184,6 +263,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!$errors) {
         try {
+            // The other certificates come off FIRST, before this one is created.
+            //
+            // Not a style choice. create_tracking_cert() opens its own
+            // transaction, so these two cannot share one. Of the two orders, this
+            // is the one whose half-done state is still true: if the save then
+            // fails, the unit is recorded as off the old vehicle - which it is -
+            // and the next attempt finds no clash. The other way round leaves the
+            // new certificate issued while the old one still claims the box,
+            // which is precisely the two-vehicles-one-unit state being prevented.
+            // Each slot carries its own reason, so each certificate is closed with
+            // the explanation that belongs to it.
+            $closed = [];
+            foreach ($toClose as $move) {
+                remove_tracking_unit($move['held'], $user, $move['why'],
+                                     $form['installed_on']);
+                $closed[] = tracking_label($move['held'])
+                          . ' (' . $move['held']['reg_no'] . ')';
+            }
+
             // Two boxes in, one list out. create_tracking_cert() stores the rows
             // and writes the printed "a / b" string from them.
             $cert = create_tracking_cert(
@@ -210,10 +308,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                       . $form['financier'] . ' agreement (expires '
                       . fmt_date($form['expiry_date']) . ')'
                     : '')
-                . '. It takes its serial number once they confirm the payment.');
+                . '. It takes its serial number once they confirm the payment.'
+                // Said out loud, because closing another customer's certificate is
+                // not a side effect anybody should discover later.
+                . ($closed
+                    ? ' The unit was taken off ' . implode(' and ', $closed)
+                      . ', and that cover ended ' . fmt_date($form['installed_on']) . '.'
+                    : ''));
             redirect('tracking_view.php?id=' . $cert['id']);
         } catch (Throwable $err) {
             $errors[] = 'Could not save: ' . $err->getMessage();
+
+            // If the other certificates were already closed, say so. Otherwise the
+            // next attempt succeeds, the clash is mysteriously gone, and nobody
+            // knows another customer's cover ended in a save that reported failure.
+            if (!empty($closed)) {
+                $errors[] = 'The unit had already been taken off ' . implode(' and ', $closed)
+                    . ' before this failed, and that stands - it is where the tracker '
+                    . 'actually is that matters. Fix the problem above and save again; '
+                    . 'do not tick "Unit moved from another vehicle" the second time.';
+            }
         }
     }
 }
@@ -221,10 +335,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 /** One text field. $req marks it with the red asterisk and makes the browser enforce it. */
 function trk_input(string $name, string $label, string $value, array $opts = []): void
 {
+    // Required unless the call says otherwise - most fields on this form are.
+    //
+    // But a label that says "(optional)" is never required, whatever the call
+    // forgot to pass. The star and the word cannot be allowed to contradict each
+    // other on screen: the field showed "SECOND UNIT NO. (OPTIONAL) *" and then
+    // refused to submit without it.
     $req  = !array_key_exists('required', $opts) || $opts['required'];
-        if (stripos($label, 'optional') !== false) {
+    if (stripos($label, 'optional') !== false) {
         $req = false;
     }
+
     $type = $opts['type'] ?? 'text';
     echo '<label class="field">' . e($label);
     if ($req) { echo ' <span class="req">*</span>'; }
@@ -347,25 +468,11 @@ function trk_financiers(): array
     return array_keys($seen);
 }
 
-layout_top('');
-layout_back('tracking_list.php', 'Back to Tracker Installations');
+layout_top('New installation certificate');
+layout_back('tracking_list.php', 'Back to installations');
 ?>
-<style>
-  .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
-     /* ---- a little wider once there is room ---- */
-  .vfy h1.vfy-title {
-    margin: 0 0 6px;
-    font-size: 22px; font-weight: 700; letter-spacing: -.4px;
-    line-height: 1.25; color: #0D4F72;
-    padding-left: 12px; border-left: 4px solid #8CC63F;
-  }
-  @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
-  .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5;}
-
-</style>
-<div class="vfy">
-<h1 class="vfy-title">New Installation Certificate</h1>
-<p class="vfy-sub">For a vehicle tracking unit. The expiry date is worked out from the subscription
+<h1>New Installation Certificate</h1>
+<p class="hint">For a vehicle tracking unit. The expiry date is worked out from the subscription
 date &mdash; twelve months, ending the day before the anniversary. The certificate goes to
 accounts when you save, and takes its serial number once they confirm the payment.</p>
 
@@ -411,13 +518,89 @@ accounts when you save, and takes its serial number once they confirm the paymen
 
   <fieldset>
     <legend>Tracking unit</legend>
+    <?php
+    /*
+      The way past a unit that is still on another certificate.
+
+      One block per IMEI, printed directly under its own box, because two
+      recovered units can come off two different vehicles. Each closes a
+      different certificate and each reason is written onto that certificate, so
+      a single shared pair would put one vehicle's explanation on another
+      vehicle's record.
+
+      Hidden until that unit actually clashes. A tick box sitting there on every
+      form is one that eventually gets ticked out of habit.
+
+      Worded as what happened to the tracker, not as what it does to the form:
+      "allow an existing IMEI" invites a tick from anybody who wants the error
+      gone, while "this unit has been moved" is a claim about a vehicle, and it
+      is only true sometimes.
+    */
+    $movedBlock = function (int $n, array $form, ?array $held): void {
+        $on = $form['moved_' . $n] !== '' || $held !== null;
+        ?>
+        <div class="moved-block" id="moved-block-<?= $n ?>"
+             style="<?= $on ? '' : 'display:none' ?>; margin:-4px 0 18px">
+          <?php /*
+            The row is a DIV, not a label, and the checkbox is sized explicitly.
+
+            Both on purpose. assets/style.css styles "form input" with width:100%
+            and "form label" as a block, and a checkbox stretched to 100% is drawn
+            by the browser with its little square CENTRED in that width - which is
+            how the tick ended up floating in the middle of the row with the words
+            crushed into a column one word wide beside it.
+
+            Putting the flex row on a plain div keeps the stylesheet's label rules
+            off the layout, and pinning width/height/flex on the input means no
+            rule in that file can stretch it again.
+          */ ?>
+          <div style="display:flex; gap:10px; align-items:flex-start">
+            <input type="checkbox" name="moved_<?= $n ?>" value="1"
+                   id="moved-box-<?= $n ?>"
+                   style="width:16px; height:16px; min-width:16px; flex:0 0 16px;
+                          margin:3px 0 0; padding:0; display:inline-block"
+                   <?= $form['moved_' . $n] !== '' ? 'checked' : '' ?>>
+            <label for="moved-box-<?= $n ?>"
+                   style="display:block; margin:0; font-weight:600; font-size:14px;
+                          text-transform:none; letter-spacing:0; color:#0D4F72;
+                          cursor:pointer">
+              Unit moved from another vehicle
+              <span style="display:block; font-weight:400; color:#5A6B78; font-size:12.5px;
+                           line-height:1.5; margin-top:2px; text-transform:none;
+                           letter-spacing:0">
+                Tick this if the tracker is already on a certificate for a different
+                vehicle because it has been taken off that one. That certificate is
+                closed off on the installation date below, and the vehicle stops being
+                covered.</span>
+            </label>
+          </div>
+
+          <div id="moved-why-<?= $n ?>"
+               style="<?= $form['moved_' . $n] !== '' ? '' : 'display:none' ?>; margin-top:10px">
+            <?php trk_input('moved_reason_' . $n, 'Why it was moved',
+                  $form['moved_reason_' . $n],
+                  ['required' => false, 'maxlength' => 200,
+                   'placeholder' => 'Vehicle repossessed, unit refitted to this one',
+                   'hint' => 'Recorded on the other certificate as the removal reason. In '
+                           . 'six months this is the only thing that tells a moved unit '
+                           . 'from a mistyped IMEI.']); ?>
+          </div>
+        </div>
+        <?php
+    };
+    ?>
+
     <?php trk_input('imei', 'Track IMEI no.', $form['imei'],
           ['inputmode' => 'numeric', 'maxlength' => 17,
            'hint' => '15 digits, from the unit or the device list.']); ?>
-        <?php trk_input('imei_2', 'Second unit no. (optional)', $form['imei_2'],
+    <?php $movedBlock(1, $form, $clash[1] ?? null); ?>
+
+    <?php trk_input('imei_2', 'Second unit no. (optional)', $form['imei_2'],
           ['required' => false, 'maxlength' => 32, 'caps' => true,
            'hint' => 'Only if a second tracker is fitted. IMEI or serial, whatever is '
                    . 'on the unit. Both print in one box, separated by a slash.']); ?>
+    <?php $movedBlock(2, $form, $clash[2] ?? null); ?>
+
     <?php trk_input('installed_on', 'Date installed', $form['installed_on'], ['type' => 'date']); ?>
   </fieldset>
 
@@ -428,7 +611,7 @@ accounts when you save, and takes its serial number once they confirm the paymen
       <span class="field-row">
         <select name="term_months" id="term">
           <?php foreach ([12 => '1 year', 24 => '2 years', 36 => '3 years',
-                          48 => '4 years', 60 => '5 years', 72 => '6 years'] as $m => $text): ?>
+                          48 => '4 years', 60 => '5 years'] as $m => $text): ?>
             <option value="<?= $m ?>" <?= (int)$form['term_months'] === $m ? 'selected' : '' ?>>
               <?= e($text) ?></option>
           <?php endforeach; ?>
@@ -461,7 +644,7 @@ accounts when you save, and takes its serial number once they confirm the paymen
 
   <button type="submit">Save certificate</button>
 </form>
-</div>
+
 <script>
 // Type in capitals: the value itself is stored in capitals, not only shown that way.
 document.querySelectorAll('input.caps').forEach(function (input) {
@@ -547,11 +730,20 @@ document.querySelectorAll('input.caps').forEach(function (input) {
                 .filter(Boolean);
   if (!boxes.length || !window.fetch) { return; }
 
-  boxes.forEach(function (box) {
+  boxes.forEach(function (box, index) {
     var note = document.createElement('span');
     note.className = 'imei-note';
     note.style.cssText = 'display:none; font-size:12.5px; line-height:1.5; margin-top:5px';
     box.closest('.field').appendChild(note);
+
+    // This slot's own tick box and reason, sitting directly beneath it. Each
+    // IMEI answers only for itself: two recovered units can come off two
+    // different vehicles, and each closes its own certificate.
+    var n        = index + 1;
+    var block    = document.getElementById('moved-block-' + n);
+    var tick     = document.getElementById('moved-box-' + n);
+    var why      = document.getElementById('moved-why-' + n);
+    var whyInput = why ? why.querySelector('input') : null;
 
     var timer = null;
     var seq   = 0;            // only the newest answer may paint
@@ -563,15 +755,33 @@ document.querySelectorAll('input.caps').forEach(function (input) {
     }
     function hide() { note.style.display = 'none'; note.textContent = ''; }
 
-    function ask() {
+    // Shown only while THIS unit is the one that clashes. Kept visible once the
+    // tick is on or a reason has been typed, so an answer already given is never
+    // yanked off the screen by a later keystroke.
+    function showBlock(on) {
+      if (!block) { return; }
+      var keep = (tick && tick.checked) || (whyInput && whyInput.value.trim() !== '');
+      block.style.display = (on || keep) ? '' : 'none';
+    }
+
+    // force = "they have finished with this box", which blur and the tick pass.
+    //
+    // While somebody is still typing, stay quiet until there are ten characters:
+    // a 15-digit IMEI would otherwise report "new unit - not seen before" on
+    // every keystroke from the tenth on, which is noise at best and wrong at
+    // worst. But the SECOND unit number can be a short serial off the casing -
+    // 63890567 is eight - and under a fixed floor of ten those were never
+    // checked at all. So on leaving the box, whatever is in it gets checked.
+    function ask(force) {
       var value = box.value.trim();
-      if (value.length < 10) { hide(); return; }
+      if (value.length < (force ? 4 : 10)) { hide(); showBlock(false); return; }
 
       // The other box, checked here rather than on the server: two units with the
       // same number is a typo, not a clash with another vehicle.
       var other = boxes.filter(function (b) { return b !== box; })[0];
       if (other && other.value.trim() === value) {
         show('bad', 'Both boxes have the same number. The second unit has its own.');
+        showBlock(false);
         return;
       }
 
@@ -582,37 +792,64 @@ document.querySelectorAll('input.caps').forEach(function (input) {
           if (!d || mine !== seq) { return; }      // a later keystroke already won
 
           if (d.state === 'pending') {
+            // No tick box for this one: the certificate is in the accounts
+            // queue and has to be approved or sent back by a person.
+            showBlock(false);
             show('bad',
               '<strong>Already on a certificate awaiting approval</strong> for '
               + d.vehicle + ' (' + (d.client || '') + '), raised ' + d.raised_on + '. '
               + '<a href="tracking_view.php?id=' + d.cert_id + '" target="_blank">Open it</a>'
               + ' &mdash; it has to be approved or sent back before this unit can be used here.');
           } else if (d.state === 'in_use') {
-            show('bad',
+            // The only clash the tick box can resolve, so this is the only
+            // state that reveals it.
+            showBlock(true);
+            var on = tick && tick.checked;
+            show(on ? 'warn' : 'bad',
               '<strong>Still fitted to ' + d.vehicle + '</strong> ('
               + (d.client || '') + '), certificate '
               + '<a href="tracking_view.php?id=' + d.cert_id + '" target="_blank">'
               + d.label + '</a>, cover to ' + d.expires + '.<br>'
-              + 'Record its removal on that certificate first.');
+              + (on
+                  ? 'That certificate will be closed off when this one is saved, and '
+                    + d.vehicle + ' stops being covered.'
+                  : 'If it has been moved here, tick <strong>Unit moved from another '
+                    + 'vehicle</strong> just below. Otherwise check the number.'));
           } else if (d.state === 'returning') {
+            showBlock(false);
             show('warn',
               'Recovered unit &mdash; last fitted to <strong>' + d.vehicle + '</strong> ('
               + (d.client || '') + '), removed ' + d.removed_on
               + (d.reason ? ': ' + d.reason : '') + '. Free to fit.');
           } else if (d.state === 'free') {
+            showBlock(false);
             show('ok', d.seen > 0 ? 'Free to fit.' : 'New unit — not seen before.');
           } else {
+            showBlock(false);
             hide();
           }
         })
         .catch(function () { hide(); });          // the save still checks
     }
 
+    // Ticking reveals the reason box and repaints this slot's note, which reads
+    // differently once somebody has said the unit was moved.
+    if (tick) {
+      tick.addEventListener('change', function () {
+        if (why) { why.style.display = tick.checked ? '' : 'none'; }
+        ask(true);                   // the box already holds whatever it holds
+      });
+    }
+
     box.addEventListener('input', function () {
       clearTimeout(timer);
-      timer = setTimeout(ask, 350);              // after typing stops, not per keystroke
+      timer = setTimeout(function () { ask(false); }, 350);   // after typing stops
     });
-    box.addEventListener('blur', ask);
+
+    // Wrapped rather than passed straight in: addEventListener hands the
+    // listener an Event, which as a first argument would be truthy and force
+    // every check by accident. Here the forcing is deliberate and visible.
+    box.addEventListener('blur', function () { ask(true); });
   });
 })();
 

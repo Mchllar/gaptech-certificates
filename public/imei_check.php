@@ -32,7 +32,13 @@ $except = (int)($_GET['except'] ?? 0) ?: null;
 
 // Too short to mean anything yet. Said plainly rather than guessed at, so the
 // field stays quiet while somebody is halfway through typing.
-if (strlen($imei) < 10) {
+//
+// Four, not ten. Ten was written with an IMEI in mind, which is fifteen digits.
+// The SECOND unit number is often a serial off the casing and can be far
+// shorter - 63890567 is eight - so every short serial fell under the old floor
+// and was never checked at all. The form said nothing and the clash only
+// surfaced when the save refused it.
+if (strlen($imei) < 4) {
     echo json_encode(['state' => 'short']);
     exit;
 }

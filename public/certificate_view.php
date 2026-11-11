@@ -607,4 +607,39 @@ $showCertActions = $live || ($isAdm && $inForce);
   <?php require APP_DIR . '/views/renew_modal.php'; ?>
 <?php endif; ?>
 
+<script>
+// Pull the reference out of a pasted payment message, as a suggestion only.
+// An M-Pesa code is ten letters and digits, and it is the first thing in the
+// message: "UKARI1JHJG Confirmed. Ksh70.00 sent to ..."
+//
+// approvals.php has done this since the approval screen was built. This page
+// never got it, so accounts pasting the message here had to read the code back
+// out and retype it - which is exactly the moment a character gets changed, on
+// the one field that is checked against every other certificate.
+//
+// Paired PER FORM, not by searching the whole page: this page has two forms
+// carrying these fields - the approval form and the correct-the-details form -
+// and a page-wide lookup would wire the message in one to the reference in the
+// other.
+(function () {
+  document.querySelectorAll('form').forEach(function (form) {
+    var note = form.querySelector('[name=payment_note]');
+    var ref  = form.querySelector('[name=payment_ref]');
+    if (!note || !ref) { return; }
+
+    function suggest() {
+      if (ref.value.trim() !== '') { return; }      // never overwrite a typed value
+      var m = note.value.toUpperCase().match(/\b([A-Z0-9]{10})\b/);
+      if (m) { ref.value = m[1]; }
+    }
+
+    note.addEventListener('input', suggest);
+    // On paste the field still holds the OLD text when the event fires, so the
+    // read waits for the browser to put the new text in.
+    note.addEventListener('paste', function () { setTimeout(suggest, 50); });
+    ref.addEventListener('input', function () { this.value = this.value.toUpperCase(); });
+  });
+})();
+</script>
+
 <?php layout_bottom(); ?>
