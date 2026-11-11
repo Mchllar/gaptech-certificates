@@ -8,11 +8,11 @@
 require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/certificates.php';
 require APP_DIR . '/views/layout.php';
+require_once APP_DIR . '/batches.php';          // bulk certificates
 
 $user = require_admin();
 $errors = [];
 
-/** Values that never appear on the form - they always come from Settings. */
 $defaults = [
     // trim() and ?: so a setting saved as blank still falls back to the value here
     'device_model' => trim((string)setting('default_model')) ?: 'INTELSPEED™',
@@ -20,6 +20,83 @@ $defaults = [
     'technician' => trim((string)setting('default_technician')) ?: 'GAPTECH',
     'validity_months' => trim((string)setting('default_validity_months')) ?: '12',
 ];
+
+// ---------------------------------------------------------------------------
+// A WHOLE FLEET, on this same page
+// ---------------------------------------------------------------------------
+// Two small answers this page gives about itself, before anything is printed,
+// and a POST branch of its own further down. None of it touches the
+// single-vehicle flow - that code is exactly as it was.
+// ---------------------------------------------------------------------------
+
+// The spreadsheet to fill in. With ?client= it comes down with that customer's
+// vehicles already in it, so a renewal only needs the fitting dates and nobody
+// retypes a registration that is already on file.
+if (isset($_GET['template'])) {
+    $cid  = (int)($_GET['client'] ?? 0);
+    $who  = $cid ? q('SELECT * FROM clients WHERE id = ?', [$cid])->fetch() : null;
+    $rows = $who ? q("SELECT v.reg_no, v.make, v.chassis_no, d.model AS device_model,
+                             d.serial_no, d.set_speed_kmh, i.technician
+                        FROM vehicles v
+                        LEFT JOIN installations i ON i.vehicle_id = v.id AND i.removed_on IS NULL
+                        LEFT JOIN devices d ON d.id = i.device_id
+                       WHERE v.client_id = ? ORDER BY v.reg_no", [$cid])->fetchAll()
+                 : [];
+
+    $name = $who ? preg_replace('/[^A-Za-z0-9]+/', '-', trim($who['name'])) : 'fleet';
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="gaptech-'
+         . strtolower(trim($name, '-')) . '-' . date('Y-m-d') . '.csv"');
+    header('Cache-Control: no-store');
+
+    $out = fopen('php://output', 'w');
+    fwrite($out, "\xEF\xBB\xBF");          // or Excel mangles accented names
+    // Only what actually differs from one lorry to the next.
+    //
+    // The governor model, set speed, technician and validity are the same on
+    // every certificate GAPTECH issues and already come from Settings - the
+    // single form does not ask for them either. Four columns of the same value
+    // repeated forty times is four columns somebody can get wrong.
+    fputcsv($out, ['Reg No', 'Make', 'Chassis No', 'Serial No', 'Installed On']);
+    if ($rows) {
+        foreach ($rows as $r) {
+            fputcsv($out, [$r['reg_no'], $r['make'], $r['chassis_no'],
+                           $r['serial_no'] ?: '', '']);
+        }
+    } else {
+        fputcsv($out, ['KBZ 411T', 'Isuzu FRR', 'JAANPR75L07100123',
+                       '8612340001', date('Y-m-d')]);
+    }
+    fclose($out);
+    exit;
+}
+
+// "How many vehicles does this customer already have?" - asked while the
+// customer name is being typed, so the fleet option offers itself at the moment
+// it is worth something instead of waiting to be discovered.
+if (isset($_GET['fleet_count'])) {
+    header('Content-Type: application/json');
+    $hit = function_exists('client_match')
+         ? client_match((string)$_GET['fleet_count'], (string)($_GET['phone'] ?? ''))
+         : null;
+    echo json_encode($hit
+        ? ['id' => (int)$hit['id'], 'name' => $hit['name'],
+           'phone' => (string)($hit['phone'] ?? ''),
+           'address' => (string)($hit['address'] ?? ''),
+           'vehicles' => (int)q('SELECT count(*) FROM vehicles WHERE client_id = ?',
+                                [$hit['id']])->fetchColumn()]
+        : ['id' => 0, 'vehicles' => 0, 'phone' => '', 'address' => '']);
+    exit;
+}
+
+
+/** Values that never appear on the form - they always come from Settings. */
+
+
+// Everyone already on file, for the pick-list on both customer fields. Name and
+// contact together, because two customers can share a name and the contact is
+// what tells them apart.
+$knownClients = q('SELECT id, name, phone FROM clients ORDER BY name')->fetchAll();
 
 $form = [
     'client_name' => '', 'client_phone' => '', 'client_address' => '',
@@ -58,23 +135,78 @@ if (!empty($_GET['reg'])) {
             WHERE regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g') = ?",
            [plate_key((string)$_GET['reg'])])->fetch();
     if ($v) {
-        $form['client_name'] = $v['client_name'];
-        $form['client_phone'] = $v['phone'];
-        $form['client_address'] = $v['address'];
-        $form['reg_no'] = $v['reg_no'];
-        $form['make'] = $v['make'];
-        $form['chassis_no'] = $v['chassis_no'];
+        // Cast, because these come straight out of the database and a column
+        // that was never filled in arrives as NULL. field() takes a string, so
+        // one vehicle with no make recorded made this page a fatal error
+        // instead of a form - and only for that vehicle, which is the kind of
+        // fault that survives for months.
+        $form['client_name'] = (string)$v['client_name'];
+        $form['client_phone'] = (string)$v['phone'];
+        $form['client_address'] = (string)$v['address'];
+        $form['reg_no'] = (string)$v['reg_no'];
+        $form['make'] = (string)$v['make'];
+        $form['chassis_no'] = (string)$v['chassis_no'];
         $last = q('SELECT d.*, i.installed_on
                    FROM installations i JOIN devices d ON d.id = i.device_id
                    WHERE i.vehicle_id = ? ORDER BY i.installed_on DESC LIMIT 1', [$v['id']])->fetch();
         if ($last) {
-            $form['serial_no'] = $last['serial_no'];
-            $form['installed_on'] = $last['installed_on'];
+            $form['serial_no'] = (string)$last['serial_no'];
+            $form['installed_on'] = (string)($last['installed_on'] ?: $form['installed_on']);
         }
     }
 }
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Declared out here, not inside the POST block below.
+//
+// $other is the same story: the chassis tick box below reads it to decide
+// whether to show itself, and that happens on a fresh page load too.
+//
+// The form reads $swapping when the page is first opened as well, and a
+// variable that only exists after a POST is a warning printed across the top of
+// the form. The assignment inside the block stays: it resets the value on each
+// submission, which is right.
+$swapping = null;
+$other    = null;
+
+// Which half of this page was submitted. The fleet panel posts an action; the
+// single-vehicle form does not, so its block below runs exactly as it always
+// has and is never entered by a fleet upload.
+$fleetAction = (string)($_POST['action'] ?? '');
+$isFleetPost = in_array($fleetAction, ['fleet_preview', 'fleet_create'], true);
+$fleet       = null;          // the preview, once there is one
+$fleetErrors = [];
+$fleetForm   = ['client_name' => '', 'client_phone' => '', 'client_address' => '',
+                'issue_date' => date('Y-m-d'), 'label' => ''];
+
+// The four that are the same on every certificate. Taken from Settings and
+// written onto every row, exactly as the single-vehicle form does a few lines
+// down - "these are not on the form, so whatever was posted is ignored".
+//
+// If an older spreadsheet still carries those columns they are overwritten, not
+// obeyed, and the preview says so. One place decides what a GAPTECH governor
+// certificate says, and it is Settings.
+$fleetFixed   = [
+    'device_model'    => $defaults['device_model'],
+    'set_speed_kmh'   => $defaults['set_speed_kmh'],
+    'technician'      => $defaults['technician'],
+    'validity_months' => $defaults['validity_months'],
+];
+$fleetOverrode = [];
+
+$fleetApplyDefaults = function (array $rows) use ($fleetFixed, &$fleetOverrode): array {
+    foreach ($rows as $i => $row) {
+        foreach ($fleetFixed as $key => $value) {
+            $had = trim((string)($row[$key] ?? ''));
+            if ($had !== '' && strcasecmp($had, (string)$value) !== 0) {
+                $fleetOverrode[$key] = true;
+            }
+            $rows[$i][$key] = $value;
+        }
+    }
+    return $rows;
+};
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$isFleetPost) {
     csrf_check();
     foreach ($form as $key => $default) {
         $value = trim((string)($_POST[$key] ?? $default));
@@ -339,6 +471,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
+// ---------------------------------------------------------------------------
+// The fleet panel's own POST handling
+// ---------------------------------------------------------------------------
+// Separate from the block above on purpose. One form per job, one handler per
+// form: folding a spreadsheet upload into the single-vehicle validation would
+// mean every rule up there growing an "unless this is a fleet" clause, and that
+// is how the single flow quietly breaks.
+if ($isFleetPost) {
+    csrf_check();
+    foreach ($fleetForm as $k => $v) {
+        $fleetForm[$k] = trim((string)($_POST[$k] ?? $v));
+    }
+    if ($fleetForm['client_name'] === '') {
+        $fleetErrors[] = 'Enter the customer first - it is typed once and used for every vehicle.';
+    }
+
+    if (!$fleetErrors && $fleetAction === 'fleet_preview') {
+        $up = $_FILES['csv'] ?? null;
+        if (!$up || ($up['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            $fleetErrors[] = 'Choose the filled-in spreadsheet to upload.';
+        } elseif (($up['error'] ?? 0) !== UPLOAD_ERR_OK) {
+            $fleetErrors[] = 'That file did not arrive in one piece (error ' . (int)$up['error']
+                           . '). If it is an Excel file, save it as CSV first.';
+        } else {
+            try {
+                $fleet = batch_preview($fleetForm,
+                            $fleetApplyDefaults(batch_rows_from_csv($up['tmp_name'])),
+                            $fleetForm['issue_date']);
+            } catch (Throwable $e) {
+                $fleetErrors[] = $e->getMessage();
+            }
+        }
+    }
+
+    if (!$fleetErrors && $fleetAction === 'fleet_create') {
+        // Checked again from scratch. The preview on screen may be minutes old
+        // and somebody else may have raised a certificate for one of these
+        // lorries since - the rows posted back are a list, not evidence.
+        // Applied again here, not trusted from the posted rows: what gets written
+        // must come from Settings whatever arrives in the form.
+        $fleet     = batch_preview($fleetForm,
+                        $fleetApplyDefaults(json_decode((string)($_POST['rows'] ?? '[]'), true) ?: []),
+                        $fleetForm['issue_date']);
+        $confirmed = array_map('intval', (array)($_POST['confirm'] ?? []));
+        $make      = [];
+
+        foreach ($fleet['rows'] as $r) {
+            if ($r['verdict'] === 'blocked') {
+                continue;                       // shown, skipped, never created
+            }
+            $r['confirm'] = in_array((int)$r['line'], $confirmed, true);
+            if (!empty($r['needs_confirm']) && !$r['confirm']) {
+                $fleetErrors[] = 'Line ' . $r['line'] . ' (' . $r['reg_no']
+                    . ') takes a governor off another lorry. Tick it to confirm, or remove it.';
+            }
+            $make[] = $r;
+        }
+        if (!$make && !$fleetErrors) {
+            $fleetErrors[] = 'Every row in that file is blocked. Fix them and upload it again.';
+        }
+
+        if (!$fleetErrors) {
+            try {
+                $done = batch_create($fleetForm, $make, $user,
+                                     $fleetForm['issue_date'], $fleetForm['label']);
+                flash(count($done['certificates']) . ' certificates for '
+                    . $fleetForm['client_name'] . ' sent to accounts for approval. '
+                    . 'They take their numbers once the payment is confirmed.');
+                redirect('index.php?status=pending');
+            } catch (Throwable $e) {
+                $fleetErrors[] = 'Could not create them: ' . $e->getMessage();
+            }
+        }
+    }
+}
+
 /** One required text field. */
 function field(string $name, string $label, string $value, array $opts = []): void
 {
@@ -378,14 +586,208 @@ layout_back('index.php', 'Back to certificates');
 filled in from Settings. The certificate goes to accounts when you save, and takes its number once
 they confirm the payment.</p>
 
-<?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
+<?php
+/*
+  One vehicle, or a whole fleet. Two panels on this page, not two pages: nobody
+  decides which they are doing before they start - they begin typing a customer
+  and then realise it is forty lorries. Switching is a button, not a journey,
+  and the customer typed in one panel appears in the other.
 
+  The single-vehicle form below is untouched. This sits above it.
+*/
+$showFleet = $isFleetPost;
+?>
+<datalist id="known-clients">
+  <?php foreach ($knownClients as $kc): ?>
+    <option value="<?= e($kc['name']) ?>"><?= e($kc['phone']) ?></option>
+  <?php endforeach; ?>
+</datalist>
+
+<div style="display:flex; gap:8px; margin:0 0 6px; flex-wrap:wrap">
+  <button type="button" id="tab-one" style="padding:10px 18px; border-radius:8px; font-weight:600;
+          cursor:pointer; border:1px solid #D3DCE4; background:#fff; color:#0D4F72">One vehicle</button>
+  <button type="button" id="tab-fleet" style="padding:10px 18px; border-radius:8px; font-weight:600;
+          cursor:pointer; border:1px solid #D3DCE4; background:#fff; color:#0D4F72">A whole fleet</button>
+</div>
+
+<?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
+<?php foreach ($fleetErrors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
+
+<!-- ------------------------------------------------------------------ fleet -->
+<div id="panel-fleet" style="<?= $showFleet ? '' : 'display:none' ?>">
+  <p class="hint">One line per vehicle in a spreadsheet. Everything is checked and shown to
+     you before anything is saved, and the whole lot goes to accounts as one payment.</p>
+
+  <form method="post" class="card-form" enctype="multipart/form-data" autocomplete="off">
+    <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+
+    <fieldset>
+      <legend>Customer</legend>
+      <label class="field">Customer name <span class="req">*</span>
+        <span class="field-row">
+          <input name="client_name" id="fleet-client" class="caps" maxlength="120"
+                 list="known-clients" autocomplete="off"
+                 value="<?= e($fleetForm['client_name']) ?>">
+        </span>
+        <span class="field-hint" id="fleet-known"></span>
+      </label>
+      <label class="field">Contact
+        <span class="field-row">
+          <input name="client_phone" type="tel" maxlength="20" pattern="[0-9+ ]*"
+                 value="<?= e($fleetForm['client_phone']) ?>">
+        </span>
+      </label>
+      <label class="field">Address
+        <span class="field-row">
+          <input name="client_address" class="caps" maxlength="160"
+                 value="<?= e($fleetForm['client_address']) ?>">
+        </span>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>The spreadsheet</legend>
+      <p class="field-hint" style="margin-top:0">Download it, fill it in, upload it back.
+         For a customer already on file it comes down with their vehicles in it, so a renewal
+         only needs the fitting dates. Five columns: registration, make, chassis, serial and
+         the date fitted.</p>
+
+      <p class="field-hint" style="margin:0 0 16px">
+         <?= e($defaults['device_model']) ?> &middot; <?= e($defaults['set_speed_kmh']) ?> km/h
+         &middot; <?= e($defaults['technician']) ?> &middot;
+         <?= e($defaults['validity_months']) ?> months &mdash; the same on every certificate,
+         taken from Settings, not from the spreadsheet.</p>
+
+      <p style="margin:0 0 16px">
+        <a class="button secondary" id="fleet-template" href="certificate_new.php?template=1">Download the spreadsheet</a>
+      </p>
+
+      <label class="field">The filled-in file <span class="req">*</span>
+        <span class="field-row">
+          <input type="file" name="csv" accept=".csv,text/csv,application/vnd.ms-excel">
+        </span>
+        <span class="field-hint">From Excel: File, Save As, "CSV (Comma delimited)".</span>
+      </label>
+
+      <label class="field">Issue date <span class="req">*</span>
+        <span class="field-row">
+          <input type="date" name="issue_date" value="<?= e($fleetForm['issue_date']) ?>">
+        </span>
+        <span class="field-hint">The same for every certificate in the batch. Each expires by its own validity.</span>
+      </label>
+
+      <label class="field">Name for this batch
+        <span class="field-row">
+          <input name="label" maxlength="80" value="<?= e($fleetForm['label']) ?>"
+                 placeholder="e.g. November intake">
+        </span>
+      </label>
+
+      <button class="button" type="submit" name="action" value="fleet_preview">Check the file</button>
+    </fieldset>
+  </form>
+
+  <?php if ($fleet !== null): $c = $fleet['counts']; ?>
+    <?php /*
+      The preview is a dialog, not a slab below the form.
+
+      It is a decision, and a decision wants the screen: everything in it is
+      about one question - do these rows go in or not - and the upload form it
+      was sitting under is no longer relevant by the time it exists. Same
+      dialog as the payment message, so it behaves the way the rest of the
+      system does.
+    */ ?>
+    <button type="button" id="preview-opener" data-modal="#m-preview" style="display:none"></button>
+
+    <div class="gt-modal" id="m-preview">
+      <form class="gt-box" method="post" style="max-width:900px">
+        <h3>What is in that file</h3>
+
+        <p class="gt-hint"><?= (int)$c['new'] ?> first fittings &middot;
+           <?= (int)$c['renewal'] ?> renewals &middot;
+           <?= (int)$c['moved'] ?> with a governor moved from another lorry &middot;
+           <?= (int)$c['blocked'] ?> that cannot be created.
+           <strong>Nothing has been saved yet.</strong></p>
+
+        <?php if ($fleetOverrode): ?>
+          <p class="gt-hint" style="color:#8A5A00">
+            Your file had its own
+            <?= e(implode(', ', array_map(fn($k) => [
+                  'device_model' => 'governor model', 'set_speed_kmh' => 'set speed',
+                  'technician' => 'technician', 'validity_months' => 'validity'][$k],
+                  array_keys($fleetOverrode)))) ?>.
+            Those come from Settings on every certificate, so the values in the
+            spreadsheet were not used &mdash; the same as on the single-vehicle form.</p>
+        <?php endif; ?>
+
+        <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+        <input type="hidden" name="rows" value="<?= e(json_encode($fleet['rows'])) ?>">
+        <?php foreach ($fleetForm as $k => $v): ?>
+          <input type="hidden" name="<?= e($k) ?>" value="<?= e($v) ?>">
+        <?php endforeach; ?>
+
+        <?php /* The list scrolls inside the dialog; the buttons below never move. */ ?>
+        <div style="max-height:50vh; overflow:auto; margin:0 0 14px">
+          <table class="list">
+            <thead><tr><th>Line</th><th>Registration</th><th>Governor</th><th></th>
+                       <th>What will happen</th></tr></thead>
+            <tbody>
+            <?php foreach ($fleet['rows'] as $r):
+              $badge = ['new' => 'Fitting', 'renewal' => 'Renewal',
+                        'moved' => 'Moved unit', 'blocked' => 'Cannot create'][$r['verdict']]; ?>
+              <tr<?= $r['verdict'] === 'blocked' ? ' style="opacity:.6"' : '' ?>>
+                <td><?= (int)$r['line'] ?></td>
+                <td><strong><?= e($r['reg_no'] ?: '-') ?></strong><br>
+                    <span class="field-hint"><?= e($r['make']) ?></span></td>
+                <td><?= e($r['serial_no'] ?: '-') ?></td>
+                <td><span class="status status-<?= e($r['verdict']) ?>"><?= e($badge) ?></span></td>
+                <td><?= e(implode(' ', $r['notes'])) ?>
+                  <?php if (!empty($r['needs_confirm']) && $r['verdict'] !== 'blocked'): ?>
+                    <div style="display:flex; align-items:center; gap:8px; margin-top:8px">
+                      <input type="checkbox" name="confirm[]" value="<?= (int)$r['line'] ?>"
+                             id="cf<?= (int)$r['line'] ?>" style="width:16px; flex:0 0 16px; margin:0">
+                      <label for="cf<?= (int)$r['line'] ?>" style="margin:0">Yes &mdash; it was
+                        moved. Close the old fitting.</label>
+                    </div>
+                  <?php endif; ?>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="gt-foot">
+          <button type="button" class="button secondary gt-close">Cancel</button>
+          <button type="submit" name="action" value="fleet_create" class="button"
+                  <?= $fleet['ok'] === 0 ? 'disabled' : '' ?>>
+            Create <?= (int)$fleet['ok'] ?> certificate<?= $fleet['ok'] === 1 ? '' : 's' ?>
+          </button>
+        </div>
+      </form>
+    </div>
+    <?php require_once APP_DIR . '/views/modal_base.php'; ?>
+  <?php endif; ?>
+</div>
+
+<!-- ----------------------------------------------------------- one vehicle -->
+<div id="panel-one" style="<?= $showFleet ? 'display:none' : '' ?>">
 <form method="post" class="card-form" autocomplete="off">
   <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
 
   <fieldset>
     <legend>Customer</legend>
+    <?php /*
+      The pick-list is added after the field is drawn rather than by changing
+      field(): that helper is used by every input on this page, and giving it a
+      "list" option for the sake of one of them would put the option on all of
+      them waiting to be misused.
+    */ ?>
     <?php field('client_name', 'Customer name', $form['client_name'], ['caps' => true]); ?>
+    <script>(function () {
+      var f = document.querySelector('#panel-one [name="client_name"]');
+      if (f) { f.setAttribute('list', 'known-clients'); f.setAttribute('autocomplete', 'off'); }
+    })();</script>
     <label class="field">Contact <span class="req">*</span>
       <span class="field-row">
         <input name="client_phone" type="tel" value="<?= e($form['client_phone']) ?>" required
@@ -485,6 +887,7 @@ they confirm the payment.</p>
 
   <button type="submit">Save Certificate</button>
 </form>
+</div>
 
 <script>
 // Type in capitals: the value itself is stored in capitals, not only shown that way.
@@ -758,6 +1161,168 @@ document.querySelectorAll('input.caps').forEach(function (input) {
   if (serialBox) {
     serialBox.addEventListener('input', later);
     serialBox.addEventListener('blur', ask);
+  }
+})();
+
+// The preview opens itself. Clicking the shared opener rather than touching the
+// dialog directly means it opens, closes and traps focus exactly like every
+// other dialog on the site, whatever modal_base.php does.
+window.addEventListener('load', function () {
+  var opener = document.getElementById('preview-opener');
+  if (opener) { opener.click(); }
+});
+
+// --------------------------------------------------------------- the two tabs
+//
+// Switching copies the customer across, both ways. Nobody decides "one or many"
+// before they start - they start typing and then realise - so a switch that
+// makes you retype the customer is a switch nobody uses.
+(function () {
+  var one      = document.getElementById('panel-one');
+  var fleet    = document.getElementById('panel-fleet');
+  var tabOne   = document.getElementById('tab-one');
+  var tabFleet = document.getElementById('tab-fleet');
+  if (!one || !fleet || !tabOne || !tabFleet) { return; }
+
+  var pairs = [['client_name', 'client_name'], ['client_phone', 'client_phone'],
+               ['client_address', 'client_address']];
+
+  function field(panel, name) { return panel.querySelector('[name="' + name + '"]'); }
+
+  // Their details, into whichever panel is asking. Empty fields only.
+  function fill(panel, d) {
+    if (!d || !d.id) { return; }
+    var p = field(panel, 'client_phone'), a = field(panel, 'client_address');
+    var touched = false;
+    if (p && p.value.trim() === '' && d.phone)   { p.value = d.phone;   touched = true; }
+    if (a && a.value.trim() === '' && d.address) { a.value = d.address; touched = true; }
+    if (touched) {
+      // Said out loud. A field filling itself while somebody is looking away is
+      // the kind of thing that gets saved without being read.
+      var n = field(panel, 'client_name');
+      var box = n ? (n.closest('.field') || n.parentNode) : null;
+      if (box) {
+        var say = box.querySelector('.picked-note');
+        if (!say) {
+          say = document.createElement('span');
+          say.className = 'picked-note field-hint';
+          say.style.cssText = 'display:block; color:#4A7A18; margin-top:5px';
+          box.appendChild(say);
+        }
+        say.textContent = 'Contact and address filled in from the customer on file.';
+      }
+    }
+  }
+
+  function carry(from, to) {
+    pairs.forEach(function (p) {
+      var a = field(from, p[0]), b = field(to, p[1]);
+      if (a && b && a.value.trim() !== '' && b.value.trim() === '') { b.value = a.value; }
+    });
+  }
+
+  function paint(onFleet) {
+    fleet.style.display = onFleet ? '' : 'none';
+    one.style.display   = onFleet ? 'none' : '';
+    [[tabOne, !onFleet], [tabFleet, onFleet]].forEach(function (t) {
+      t[0].style.background  = t[1] ? '#0D4F72' : '#fff';
+      t[0].style.color       = t[1] ? '#fff'    : '#0D4F72';
+      t[0].style.borderColor = t[1] ? '#0D4F72' : '#D3DCE4';
+    });
+  }
+
+  tabFleet.addEventListener('click', function () { carry(one, fleet); paint(true); });
+  tabOne.addEventListener('click',  function () { carry(fleet, one); paint(false); });
+  paint(fleet.style.display !== 'none');
+
+  // "This customer already has 38 vehicles." Asked of the single form while the
+  // name is typed, so the fleet option offers itself at the moment it is worth
+  // something rather than waiting to be found.
+  var name  = field(one, 'client_name');
+  var phone = field(one, 'client_phone');
+  var tmpl  = document.getElementById('fleet-template');
+  var known = document.getElementById('fleet-known');
+  if (!name || !window.fetch) { return; }
+
+  var hint = document.createElement('p');
+  hint.className = 'hint';
+  hint.style.cssText = 'display:none; text-align:left; margin:0 0 16px; padding:12px 14px;'
+                     + ' border-left:3px solid #8CC63F; background:#F4F9EC';
+  one.parentNode.insertBefore(hint, one);
+
+  var timer = null, seq = 0;
+
+  function look() {
+    var v = name.value.trim();
+    if (v.length < 3) { hint.style.display = 'none'; return; }
+    var mine = ++seq;
+    fetch('certificate_new.php?fleet_count=' + encodeURIComponent(v)
+            + '&phone=' + encodeURIComponent(phone ? phone.value.trim() : ''),
+          { credentials: 'same-origin' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || mine !== seq) { return; }
+        if (tmpl) {
+          tmpl.href = d.id ? 'certificate_new.php?template=1&client=' + d.id
+                           : 'certificate_new.php?template=1';
+          tmpl.textContent = d.id && d.vehicles
+            ? 'Download their ' + d.vehicles + ' vehicles to fill in'
+            : 'Download the spreadsheet';
+        }
+        if (known) {
+          known.textContent = d.id ? 'On file with ' + d.vehicles + ' vehicles.' : '';
+        }
+
+        // Their contact and address, so nobody retypes what the system already
+        // knows. Only into EMPTY fields: a value already on screen was put there
+        // by the person at the keyboard, and overwriting it would throw away a
+        // correction they are halfway through making.
+        fill(one, d);
+        if (d.vehicles >= 3) {
+          hint.innerHTML = '<strong>' + d.name + '</strong> has <strong>' + d.vehicles
+            + ' vehicles</strong> on file. <a href="#" id="go-fleet">Do them in one upload</a>'
+            + ' &mdash; their registrations, chassis numbers and fitted governors come down'
+            + ' already filled in.';
+          hint.style.display = '';
+          var go = document.getElementById('go-fleet');
+          if (go) {
+            go.addEventListener('click', function (ev) {
+              ev.preventDefault();
+              carry(one, fleet);
+              paint(true);
+              window.scrollTo(0, 0);
+            });
+          }
+        } else {
+          hint.style.display = 'none';       // two lorries is not a fleet
+        }
+      })
+      .catch(function () { hint.style.display = 'none'; });
+  }
+
+  name.addEventListener('input', function () { clearTimeout(timer); timer = setTimeout(look, 400); });
+  name.addEventListener('blur', look);
+  if (phone) { phone.addEventListener('blur', look); }
+
+  var fleetName = field(fleet, 'client_name');
+  if (fleetName) {
+    fleetName.addEventListener('blur', function () {
+      if (!window.fetch) { return; }
+      fetch('certificate_new.php?fleet_count=' + encodeURIComponent(fleetName.value.trim()),
+            { credentials: 'same-origin' })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d || !tmpl) { return; }
+          tmpl.href = d.id ? 'certificate_new.php?template=1&client=' + d.id
+                           : 'certificate_new.php?template=1';
+          tmpl.textContent = d.id && d.vehicles
+            ? 'Download their ' + d.vehicles + ' vehicles to fill in'
+            : 'Download the spreadsheet';
+          if (known) { known.textContent = d.id ? 'On file with ' + d.vehicles + ' vehicles.' : ''; }
+          fill(fleet, d);
+        })
+        .catch(function () {});
+    });
   }
 })();
 </script>

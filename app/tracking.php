@@ -57,6 +57,24 @@ if (!function_exists('default_expiry')) {
 // State
 // ---------------------------------------------------------------------------
 
+/** What state a tracking certificate is in. Approval comes before everything else. */
+function tracking_status(array $cert): string
+{
+    $approval = $cert['approval_status'] ?? 'approved';
+    if ($approval === 'pending') {
+        return 'Pending approval';
+    }
+    if ($approval === 'rejected') {
+        return 'Rejected';
+    }
+    if ($cert['status'] === 'voided') {
+        return 'Voided';
+    }
+    if ($cert['status'] === 'superseded') {
+        return 'Superseded';
+    }
+    return strtotime($cert['expiry_date']) < strtotime(date('Y-m-d')) ? 'Expired' : 'Valid';
+}
 
 /** Only an approved, current, unexpired certificate may be printed or downloaded. */
 function tracking_is_releasable(array $cert): bool
@@ -402,7 +420,18 @@ function renew_tracking_cert(array $old, array $user, string $note, int $months 
     }
 
     $s = json_decode((string)$old['snapshot'], true) ?: [];
-    $start = date('Y-m-d');
+
+    // The new subscription picks up the day after the current one ends, so the
+    // client keeps every day they paid for. This used to start from today, which
+    // meant renewing a subscription with months left quietly threw those months
+    // away - and made renewing late the safest thing to do.
+    //
+    // A subscription that has ALREADY lapsed starts today instead. The rule lives
+    // in renewal_start_date(), in app/certificates.php, so both modules agree on
+    // it; the guard is for a page that loads tracking without it.
+    $start = function_exists('renewal_start_date')
+        ? renewal_start_date((string)$old['expiry_date'])
+        : date('Y-m-d');
 
     $in = [
         'client_name'       => $s['client']['name']       ?? $old['client_name'],
@@ -459,7 +488,26 @@ function render_tracking_sheet(array $cert, string $mode = 'screen'): string
     // Settings may have changed since the certificate was issued, but the footer is
     // contact detail rather than certified fact, so take the current values if the
     // snapshot predates them.
+    //
+    // This line fills GAPS only: array_merge lets the second array win, so any
+    // value the snapshot already holds keeps winning. That is right for the
+    // stamp and the signature, which are marks of authority belonging to the day
+    // the certificate was signed.
     $d['company'] = array_merge(tracking_company(), array_filter($d['company'] ?? []));
+
+    // ...but it was never right for the contact details, whatever the comment
+    // above claimed. A changed telephone number never reached the certificate,
+    // because the snapshot already held the old one and therefore won. A phone
+    // number is not a record of anything - it is an instruction to call - and a
+    // certificate in a glovebox printing a dead line helps nobody. So these are
+    // refreshed outright.
+    $contact = tracking_company();
+    foreach (['name', 'name_caps', 'tagline', 'address', 'emergency',
+              'email', 'website'] as $field) {
+        if (trim((string)($contact[$field] ?? '')) !== '') {
+            $d['company'][$field] = $contact[$field];
+        }
+    }
 
     $d['cert']['number'] = $d['cert']['number'] ?: tracking_label($cert);
     $d['cert']['status'] = tracking_status($cert);
@@ -474,236 +522,41 @@ function render_tracking_sheet(array $cert, string $mode = 'screen'): string
     return (string)ob_get_clean();
 }
 
-
 /**
- * Three functions to ADD to the end of app/tracking.php, plus one small change to
- * tracking_status() that is already in that file.
- *
- * They cover a tracker being taken off a vehicle - almost always because GAPTECH
- * has recovered the unit after a repossession - and being fitted to somebody
- * else's vehicle afterwards.
- *
- * The second half needs nothing new: the new customer's certificate is an ordinary
- * new installation with the same IMEI, a fresh subscription and the usual trip
- * through accounts. tracking_imeis.imei was never unique, so nothing was ever in
- * the way of reusing a unit.
- *
- * What was missing is the first half, and the guard that connects the two.
- */
-
-
-// ===========================================================================
-// 1. REPLACE tracking_status() with this. One new line.
-// ===========================================================================
-
-/**
- * What to call this certificate on screen.
- *
- * 'Removed' is not 'Voided'. Voided means the certificate should never have gone
- * out. Removed means it was perfectly good for the months it covered, and the unit
- * has since come off the vehicle - which is what an officer checking the old
- * vehicle's certificate needs to be told.
- */
-function tracking_status(array $cert): string
-{
-    $approval = $cert['approval_status'] ?? 'approved';
-    if ($approval === 'pending') {
-        return 'Pending approval';
-    }
-    if ($approval === 'rejected') {
-        return 'Rejected';
-    }
-    if ($cert['status'] === 'voided') {
-        return 'Voided';
-    }
-    if ($cert['status'] === 'removed') {
-        return 'Unit removed';
-    }
-    if ($cert['status'] === 'superseded') {
-        return 'Superseded';
-    }
-    return strtotime($cert['expiry_date']) < strtotime(date('Y-m-d')) ? 'Expired' : 'Valid';
-}
-
-
-// ===========================================================================
-// 2. ADD these three at the end of app/tracking.php
-// ===========================================================================
-
-/**
- * Record that the tracker has been taken off this vehicle.
- *
- * The certificate is kept, with the date and the reason. The vehicle stops being
- * covered from that moment, because there is no longer a box in it - the dashboard
- * and the renewal lists both read "covered" from the certificate in force, so this
- * is what takes it out of them.
- *
- * The remaining subscription time ends here. It belonged to the customer who had
- * the vehicle; the next customer buys their own. Nothing is refunded or carried
- * across by the system, and nothing pretends to.
- */
-function remove_tracking_unit(array $cert, array $user, string $reason, string $when = ''): array
-{
-    $reason = trim($reason);
-    if ($reason === '') {
-        throw new RuntimeException('Say why the unit is being removed.');
-    }
-
-    if (($cert['approval_status'] ?? '') !== 'approved') {
-        throw new RuntimeException('Only a released certificate can have its unit removed. '
-            . 'A pending one should be sent back instead.');
-    }
-    if (($cert['status'] ?? '') === 'removed') {
-        throw new RuntimeException('That unit is already recorded as removed.');
-    }
-    if (in_array($cert['status'] ?? '', ['voided', 'superseded'], true)) {
-        throw new RuntimeException('That certificate is already ' . $cert['status']
-            . ', so there is nothing to remove from it.');
-    }
-
-    $when = trim($when) !== '' ? $when : date('Y-m-d');
-    if (strtotime($when) === false) {
-        throw new RuntimeException('That removal date is not a date.');
-    }
-    // A unit cannot come off before it went on, and recording a removal in the
-    // future would take a vehicle out of cover it still has.
-    if (strtotime($when) < strtotime((string)$cert['installed_on'])) {
-        throw new RuntimeException('The unit cannot be removed before it was installed ('
-            . fmt_date((string)$cert['installed_on']) . ').');
-    }
-    if (strtotime($when) > strtotime(date('Y-m-d'))) {
-        throw new RuntimeException('A removal cannot be dated in the future.');
-    }
-
-    q("UPDATE tracking_certificates
-          SET status = 'removed', removed_on = ?, removed_reason = ?, removed_by = ?
-        WHERE id = ?",
-      [date('Y-m-d', strtotime($when)), $reason, (int)$user['id'], $cert['id']]);
-
-    audit('remove_tracking_unit', 'tracking_certificate', (int)$cert['id'], [
-        'reg_no'      => $cert['reg_no'],
-        'imei'        => $cert['imei'],
-        'removed_on'  => date('Y-m-d', strtotime($when)),
-        'reason'      => $reason,
-        'cover_ended' => $cert['expiry_date'],   // what the customer gave up
-    ]);
-
-    return q('SELECT * FROM tracking_certificates WHERE id = ?', [$cert['id']])->fetch();
-}
-
-/**
- * Is this IMEI already spoken for?
- *
- * Returns the certificate holding it, or null. Read the row's approval_status to
- * tell the two cases apart - they need different words, not different rules.
- *
- *   approved + issued   the unit is in that vehicle now
- *   pending             a certificate awaiting approval has already claimed it
- *
- * ---------------------------------------------------------------------------
- * Pending certificates count, and that is the whole point
- * ---------------------------------------------------------------------------
- * The first version of this asked only about approved certificates, on the
- * reasoning that a pending one has not been released so the unit is not really in
- * service. True, and beside the point.
- *
- * A certificate sitting with accounts is a CLAIM on that unit. If a second
- * certificate is raised for another vehicle with the same IMEI while the first is
- * waiting, both pass the check, both go to accounts, and both get approved - two
- * vehicles holding one box, which is exactly what this function exists to prevent.
- * The window is however long accounts take, so days, not milliseconds.
- *
- * Rejected certificates are excluded: that claim was turned down. Removed, voided
- * and superseded are excluded too - the unit has left, the certificate was an
- * error, or it is a renewal of the same vehicle where the unit never moved.
- *
- * "Approved" deliberately does NOT mean unexpired. An expired certificate whose
- * unit was never removed still means the box is in that vehicle.
- */
-function tracking_imei_in_use(string $imei, ?int $exceptCertId = null): ?array
-{
-    $imei = trim($imei);
-    if ($imei === '') {
-        return null;
-    }
-
-    $row = q("SELECT c.*
-                FROM tracking_certificates c
-                JOIN tracking_imeis i ON i.cert_id = c.id
-               WHERE i.imei = ?
-                 AND c.approval_status IN ('approved', 'pending')
-                 AND c.status = 'issued'
-                 -- cast needed: PostgreSQL cannot infer the type of a parameter
-                 -- that only ever appears in an IS NULL test
-                 AND (?::int IS NULL OR c.id <> ?::int)
-               -- an approved claim outranks a pending one, so the message names
-               -- the vehicle the unit is actually in when both exist
-               ORDER BY (c.approval_status = 'approved') DESC,
-                        c.subscription_date DESC, c.id DESC
-               LIMIT 1", [$imei, $exceptCertId, $exceptCertId])->fetch();
-
-    return $row ?: null;
-}
-
-/**
- * Everywhere this unit has been, newest first.
- *
- * The question anybody holding a recovered tracker asks, and the one support asks
- * when a customer says their vehicle stopped reporting. Renewals of the same
- * vehicle are included - they are part of the unit's life even though it did not
- * move - so the caller can show them or fold them up as it likes.
- */
-function tracking_device_history(string $imei): array
-{
-    $imei = trim($imei);
-    if ($imei === '') {
-        return [];
-    }
-
-    return q("SELECT c.id, c.number, c.reg_no, c.client_name, c.status, c.approval_status,
-                     c.installed_on, c.subscription_date, c.expiry_date,
-                     c.removed_on, c.removed_reason
-                FROM tracking_certificates c
-                JOIN tracking_imeis i ON i.cert_id = c.id
-               WHERE i.imei = ?
-               ORDER BY c.subscription_date DESC, c.id DESC", [$imei])->fetchAll();
-}
-
- 
-// ===========================================================================
-// In app/tracking.php - replaces tracking_pdf()
-// ===========================================================================
- 
-/**
- * Produce the PDF and remember where it is.
- *
- * Portrait, and two pages: the certificate, then the guarantee terms. The page
- * break in tracking_terms.php does the splitting; all this sets is the paper.
+ * Produce the PDF and remember where it is. Returns the file path, or null when
+ * wkhtmltopdf is not configured - the browser's own "Save as PDF" is used instead.
  */
 function tracking_pdf(array $cert, bool $force = false): ?string
 {
     global $config;
- 
-    if (pdf_engine() === null) {
-        return null;                       // same fallback as certificate_pdf()
+    if (empty($config['wkhtmltopdf'])) {
+        return null;
     }
- 
     $dir = rtrim((string)$config['storage'], '/\\') . '/tracking';
     if (!is_dir($dir) && !mkdir($dir, 0770, true) && !is_dir($dir)) {
         throw new RuntimeException('Cannot create storage folder: ' . $dir);
     }
- 
     $pdfPath = $dir . '/installation-' . tracking_label($cert) . '.pdf';
- 
-    // Same check as certificate_pdf(), portrait this time - see the note there.
-    if (!$force && !empty($cert['pdf_path']) && pdf_file_is_sane($pdfPath, 'portrait')) {
+    if (!$force && is_file($pdfPath) && !empty($cert['pdf_path'])) {
         return $pdfPath;
     }
- 
-    pdf_render_certificate('tracking', (int)$cert['id'], $pdfPath, 'portrait');
- 
+
+    $htmlPath = tempnam(sys_get_temp_dir(), 'trk') . '.html';
+    file_put_contents($htmlPath, render_tracking_sheet($cert, 'pdf'));
+
+    $cmd = escapeshellarg((string)$config['wkhtmltopdf'])
+        . ' --quiet --page-size A4 --orientation Portrait'
+        . ' --margin-top 0 --margin-bottom 0 --margin-left 0 --margin-right 0'
+        . ' --dpi 96 --enable-local-file-access'
+        . ' ' . escapeshellarg($htmlPath) . ' ' . escapeshellarg($pdfPath) . ' 2>&1';
+    exec($cmd, $output, $status);
+    @unlink($htmlPath);
+
+    if ($status !== 0 || !is_file($pdfPath)) {
+        throw new RuntimeException('wkhtmltopdf failed: ' . implode("\n", $output));
+    }
+
     q('UPDATE tracking_certificates SET pdf_path = ?, pdf_sha256 = ? WHERE id = ?',
         [$pdfPath, hash_file('sha256', $pdfPath), $cert['id']]);
- 
     return $pdfPath;
 }

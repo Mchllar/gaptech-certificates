@@ -4,6 +4,7 @@
  */
 declare(strict_types=1);
 require_once __DIR__ . '/clients.php';
+require_once __DIR__ . '/batches.php';
 
 /** Next certificate number. Locks the counter so two users can never get the same one. */
 function next_certificate_number(): int
@@ -335,7 +336,13 @@ function approve_certificate(array $cert, array $user, string $ref = '',
 
         $number = next_certificate_number();
 
-        // the number is printed on the sheet, so it goes into the snapshot too
+        // The certificate's OWN snapshot, read back and given its number.
+        //
+        // Not governor_snapshot($in): there is no $in here. This function is
+        // handed a certificate that already exists, and its snapshot was frozen
+        // when it was raised - the customer, the lorry, the governor, the dates.
+        // Rebuilding it here would throw all of that away and write an empty
+        // sheet over the top, so approving a certificate would blank it.
         $snapshot = json_decode($cert['snapshot'], true);
         $snapshot['cert']['number'] = (string)$number;
 
@@ -1127,6 +1134,7 @@ function chassis_on_file(string $chassis, ?string $exceptReg = null): ?array
  * already exist, so staff only ever fill in one form. Everything printed on the sheet is
  * copied into the snapshot, so a reprint years later shows exactly what was issued.
  */
+
 function create_certificate(array $in, array $user): array
 {
     $pdo = db();
@@ -1136,7 +1144,7 @@ function create_certificate(array $in, array $user): array
         // One matcher, shared with the CSV import and the New client form:
         // normalised phone first, then the name with case and punctuation ignored.
         $client = client_match($in['client_name'], $in['client_phone']);
-
+ 
         if ($client) {
             q('UPDATE clients SET name = ?, phone = ?, address = ?, updated_at = now() WHERE id = ?',
                 [$in['client_name'], $in['client_phone'], $in['client_address'], $client['id']]);
@@ -1145,7 +1153,7 @@ function create_certificate(array $in, array $user): array
             $clientId = (int)q('INSERT INTO clients (name, phone, address) VALUES (?, ?, ?) RETURNING id',
                 [$in['client_name'], $in['client_phone'], $in['client_address']])->fetchColumn();
         }
-
+ 
         // ---------------------------------------------------------- CHANGED (2)
         // The vehicle, found the same way everywhere: letters and digits only.
         //
@@ -1168,7 +1176,7 @@ function create_certificate(array $in, array $user): array
                 [$clientId, plate_display($in['reg_no']), $in['make'], $in['chassis_no']])
                 ->fetchColumn();
         }
-
+ 
         // device (serial number is unique)
         $device = q('SELECT * FROM devices WHERE serial_no = ?', [$in['serial_no']])->fetch();
         if ($device) {
@@ -1180,7 +1188,7 @@ function create_certificate(array $in, array $user): array
                                 VALUES (?, ?, ?) RETURNING id',
                 [$in['device_model'], $in['serial_no'], (int)$in['set_speed_kmh']])->fetchColumn();
         }
-
+ 
         // installation
         $installation = q('SELECT * FROM installations WHERE vehicle_id = ? AND device_id = ? AND removed_on IS NULL',
             [$vehicleId, $deviceId])->fetch();
@@ -1191,7 +1199,7 @@ function create_certificate(array $in, array $user): array
                                       VALUES (?, ?, ?, ?) RETURNING id',
                 [$vehicleId, $deviceId, $in['technician'], $in['installed_on']])->fetchColumn();
         }
-
+ 
         // ---------------------------------------------------------- CHANGED (3)
         // Whatever row we ended up with IS the record of when this unit was fitted
         // to this vehicle. A renewal reuses it, which means $in['installed_on'] was
@@ -1200,15 +1208,18 @@ function create_certificate(array $in, array $user): array
         // certificate is the evidence for.
         $fitted = q('SELECT installed_on, technician FROM installations WHERE id = ?',
                     [$installationId])->fetch() ?: [];
-
+ 
         if (!empty($fitted['installed_on'])) {
             $in['installed_on'] = $fitted['installed_on'];
         }
         if (!empty($fitted['technician'])) {
             $in['technician'] = $fitted['technician'];
         }
-
-        $number = next_certificate_number();
+ 
+        // ---------------------------------------------------------- CHANGED (5)
+        // No certificate number here. A certificate accounts has not approved is
+        // not a certificate yet, and a number on it is a number spent on nothing.
+        // approve_certificate() allocates it when approval actually happens.
         $token = bin2hex(random_bytes(4));
         $snapshot = [
             'company' => company_details(),
@@ -1218,7 +1229,7 @@ function create_certificate(array $in, array $user): array
                 'signature_image' => setting('signature_image', ''),
             ],
             'cert' => [
-                'number' => (string)$number,
+                'number' => '',          // filled in when accounts approves
                 'type' => $in['type'],
                 'is_renewal' => $in['type'] === 'Renewal',
                 'issue_date_fmt' => fmt_date($in['issue_date']),
@@ -1247,16 +1258,25 @@ function create_certificate(array $in, array $user): array
                 'technician' => $in['technician'],
             ],
         ];
-
-        $id = (int)q('INSERT INTO certificates
-              (number, type, client_id, vehicle_id, device_id, installation_id, issue_date, expiry_date,
-               receipt_ref, snapshot, verify_token, issued_by)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id', [
-            $number, $in['type'], $clientId, $vehicleId, $deviceId, $installationId,
-            $in['issue_date'], $in['expiry_date'], $in['receipt_ref'] ?? '',
+ 
+        // ---------------------------------------------------------- CHANGED (6)
+        // approval_status is named EXPLICITLY, and this is the line that matters.
+        //
+        // The column's default is 'approved' - it had to be, so the migration
+        // could leave the certificates already issued working. So an INSERT that
+        // simply does not mention the column creates a certificate that reads as
+        // approved, which accounts never saw. That is the fault being fixed.
+        //
+        // No payment reference either: accounts records that when they approve.
+        $id = (int)q("INSERT INTO certificates
+              (type, client_id, vehicle_id, device_id, installation_id, issue_date, expiry_date,
+               snapshot, verify_token, issued_by, approval_status)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending') RETURNING id", [
+            $in['type'], $clientId, $vehicleId, $deviceId, $installationId,
+            $in['issue_date'], $in['expiry_date'],
             json_encode($snapshot), $token, $user['id'],
         ])->fetchColumn();
-
+ 
         // ---------------------------------------------------------- CHANGED (4)
         // The old certificate is NOT retired here any more.
         //
@@ -1278,14 +1298,14 @@ function create_certificate(array $in, array $user): array
         // approve_certificate() already does this properly, at the moment it
         // becomes true, and date-aware so an early renewal does not retire cover
         // that is still running. One place deciding it is the point.
-
-
+ 
+ 
         $pdo->commit();
     } catch (Throwable $err) {
         $pdo->rollBack();
         throw $err;
     }
-
-    audit('issue_certificate', 'certificate', $id, ['number' => $number]);
+ 
+    audit('issue_certificate', 'certificate', $id, ['status' => 'pending approval']);
     return q('SELECT * FROM certificates WHERE id = ?', [$id])->fetch();
 }

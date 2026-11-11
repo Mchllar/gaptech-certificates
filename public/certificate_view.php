@@ -22,6 +22,7 @@
 require __DIR__ . '/../app/bootstrap.php';
 require_once APP_DIR . '/certificates.php';
 require APP_DIR . '/views/layout.php';
+require_once APP_DIR . '/batches.php';   // a certificate raised as part of a fleet
 
 $user  = require_staff();
 $isAdm = ($user['role'] ?? '') === 'administrator';
@@ -43,7 +44,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         try {
             // Every action checks the role here, on the server. Hiding a button
             // from the wrong role is a courtesy; this is the control.
-            if (in_array($action, ['approve', 'reject', 'update_pay'], true) && !$isAcc) {
+            if (in_array($action, ['approve', 'approve_batch', 'reject', 'update_pay'], true) && !$isAcc) {
                 throw new RuntimeException('Releasing certificates and recording payments is for accounts.');
             }
             if ($action === 'void' && !$isAdm) {
@@ -62,6 +63,31 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                         . (trim((string)$done['payment_ref']) === '' && trim((string)$done['lpo_no']) !== ''
                             ? ' against LPO ' . $done['lpo_no'] : '')
                         . '. The client can download it now.');
+                    redirect('certificate_view.php?id=' . $id);
+
+                case 'approve_batch':
+                    // The same release, for every vehicle ticked in the fleet this
+                    // certificate came in with. One payment covers the lot, which is
+                    // what a fleet pays; anything left unticked stays pending and the
+                    // batch stays open, so two unpaid lorries never hold up thirty.
+                    if (empty($target['batch_id'])) {
+                        throw new RuntimeException('This certificate was not raised as part of a fleet.');
+                    }
+                    $only = array_map('intval', (array)($_POST['cert'] ?? []));
+                    if (!$only) {
+                        throw new RuntimeException('Tick at least one vehicle to release.');
+                    }
+                    $done = batch_approve((int)$target['batch_id'], $user,
+                        (string)($_POST['payment_ref'] ?? ''),
+                        trim((string)($_POST['payment_note'] ?? '')),
+                        trim((string)($_POST['lpo_no'] ?? '')),
+                        $only);
+
+                    flash($done['approved'] . ' certificate'
+                        . ($done['approved'] === 1 ? '' : 's') . ' released and numbered.'
+                        . ($done['still_pending']
+                            ? ' ' . $done['still_pending'] . ' still waiting - the batch stays open.'
+                            : ' The whole batch is done.'));
                     redirect('certificate_view.php?id=' . $id);
 
                 case 'reject':
@@ -166,6 +192,18 @@ $rejected = $cert['approval_status'] === 'rejected';
 $approved = $cert['approval_status'] === 'approved';
 $voided   = $cert['status'] === 'voided';
 $live     = certificate_is_releasable($cert);
+
+// The fleet this certificate was raised with, if any. A batch of one is not
+// worth mentioning, so a single certificate behaves exactly as it always did.
+$batch     = (!empty($cert['batch_id']) && function_exists('batch_get'))
+           ? batch_get((int)$cert['batch_id']) : null;
+$siblings  = $batch ? $batch['certificates'] : [];
+$waiting   = array_values(array_filter($siblings,
+                fn($c) => $c['approval_status'] === 'pending'));
+if ($batch && count($siblings) < 2) {
+    $batch = null;                      // raised on its own in all but name
+    $siblings = $waiting = [];
+}
 
 // Anything recorded about payment at all - the block stays hidden until there is
 // something in it, rather than showing a heading over two dashes.
@@ -312,6 +350,46 @@ layout_back('index.php', 'Back to certificates');
         <td><?= e(fmt_date(substr((string)$cert['approved_at'], 0, 10))) ?></td></tr>
   <?php endif; ?>
 </table>
+
+<?php if ($batch): ?>
+  <?php /*
+    The rest of the fleet this certificate came in with. Folded away, because on
+    most visits the reader wants this one certificate - but one click from here,
+    because the next question after "what is this?" on a fleet certificate is
+    always "where are the others?".
+  */ ?>
+  <details class="fleet-list"<?= $pending ? ' open' : '' ?>>
+    <summary><?= count($siblings) ?> vehicles raised together for
+      <?= e((string)$batch['client_name']) ?><?= $batch['label'] ? ' &middot; ' . e($batch['label']) : '' ?>
+      <?= $waiting ? '&mdash; ' . count($waiting) . ' still waiting' : '&mdash; all released' ?></summary>
+
+    <table class="details" style="margin-top:10px">
+      <?php foreach ($siblings as $sib): ?>
+        <tr>
+          <th style="white-space:nowrap">
+            <?php if ((int)$sib['id'] === (int)$cert['id']): ?>
+              <?= e((string)$sib['reg_no']) ?> <span class="field-hint">(this one)</span>
+            <?php else: ?>
+              <a href="certificate_view.php?id=<?= (int)$sib['id'] ?>"><?= e((string)$sib['reg_no']) ?></a>
+            <?php endif; ?>
+          </th>
+          <td><?= e((string)$sib['serial_no']) ?></td>
+          <td><?= $sib['number'] !== null && $sib['number'] !== ''
+                  ? e((string)$sib['number'])
+                  : '<span class="field-hint">no number yet</span>' ?></td>
+          <td><span class="status status-<?= e($sib['approval_status']) ?>">
+                <?= e(ucfirst((string)$sib['approval_status'])) ?></span></td>
+        </tr>
+      <?php endforeach; ?>
+    </table>
+
+    <?php if ($batch['payments']): ?>
+      <p class="field-hint" style="margin-top:10px">Paid on
+        <?= e(implode(', ', array_map(fn($p) => $p['payment_ref'] ?: ('LPO ' . $p['lpo_no']),
+                                      $batch['payments']))) ?>.</p>
+    <?php endif; ?>
+  </details>
+<?php endif; ?>
 
 <!-- ------------------------------------------------------------------ -->
 <!-- Payment - only once there is something to show                      -->
@@ -475,7 +553,54 @@ if ($payNote !== '') { $payCells[] = ['Message', '<a href="#" data-modal="#m-not
          release two. An LPO is not &mdash; one LPO routinely covers a whole fleet.</p>
     </fieldset>
 
-    <button type="submit" name="action" value="approve">Release the certificate</button>
+    <?php if ($batch && count($waiting) > 1): ?>
+      <?php /*
+        The fleet's other certificates, ticked by default. One payment reference
+        covers all of them - that is what a fleet pays - and unticking the two
+        that were not paid for leaves those pending without holding up the rest.
+
+        The button below changes with the ticks, so what it says is what will
+        happen. Releasing this one alone is still there, underneath.
+      */ ?>
+      <fieldset>
+        <legend>The rest of this fleet</legend>
+        <p class="hint" style="text-align:left; margin:0 0 12px">
+          <?= e((string)$batch['client_name']) ?> raised <?= count($siblings) ?> vehicles together
+          and pays once. Untick anything that was not paid for &mdash; it stays waiting.
+        </p>
+
+        <table class="details">
+          <?php foreach ($waiting as $w): ?>
+            <tr>
+              <td style="width:28px">
+                <input type="checkbox" name="cert[]" value="<?= (int)$w['id'] ?>" checked
+                       class="fleet-tick" id="fx<?= (int)$w['id'] ?>"
+                       style="width:16px; flex:0 0 16px; margin:0">
+              </td>
+              <th style="white-space:nowrap">
+                <label for="fx<?= (int)$w['id'] ?>" style="margin:0; cursor:pointer">
+                  <?= e((string)$w['reg_no']) ?></label>
+              </th>
+              <td><?= e((string)$w['serial_no']) ?></td>
+              <td><?= e((string)$w['type']) ?></td>
+              <td><a href="certificate_print.php?id=<?= (int)$w['id'] ?>" target="_blank">Preview</a></td>
+            </tr>
+          <?php endforeach; ?>
+        </table>
+      </fieldset>
+
+      <button type="submit" name="action" value="approve_batch" id="release-fleet">
+        Release all <?= count($waiting) ?> certificates</button>
+
+      <p class="hint" style="text-align:left; margin:10px 0 0">
+        Or <button type="submit" name="action" value="approve" class="linkish"
+            style="background:none; border:0; padding:0; color:#1890D0; cursor:pointer;
+                   font:inherit; text-decoration:underline">release only
+        <?= e((string)$cert['reg_no']) ?></button> on this payment.
+      </p>
+    <?php else: ?>
+      <button type="submit" name="action" value="approve">Release the certificate</button>
+    <?php endif; ?>
   </form>
 
   <form method="post" class="reject-form"
@@ -600,6 +725,11 @@ $showCertActions = $live || ($isAdm && $inForce);
     padding: 6px 0;
   }
   .pay-correct[open] summary { margin-bottom: 10px; }
+  .fleet-list { margin: 0 0 22px; }
+  .fleet-list summary {
+    cursor: pointer; font-size: 14.5px; font-weight: 600; color: #0D4F72; padding: 6px 0;
+  }
+  .fleet-list[open] summary { margin-bottom: 4px; }
   /* .actions is gone: the button bar is .row-actions now, matching tracking. */
 </style>
 
@@ -621,6 +751,25 @@ $showCertActions = $live || ($isAdm && $inForce);
 // carrying these fields - the approval form and the correct-the-details form -
 // and a page-wide lookup would wire the message in one to the reference in the
 // other.
+// The fleet button says how many it will release, and keeps saying the truth as
+// boxes are unticked. A button reading "Release all 8" that releases 6 is worse
+// than no count at all.
+(function () {
+  var btn = document.getElementById('release-fleet');
+  if (!btn) { return; }
+  var ticks = document.querySelectorAll('.fleet-tick');
+  function count() {
+    var n = 0;
+    ticks.forEach(function (t) { if (t.checked) { n++; } });
+    btn.textContent = n === 0 ? 'Tick a vehicle to release'
+                   : (n === ticks.length ? 'Release all ' + n + ' certificates'
+                                         : 'Release ' + n + ' of ' + ticks.length);
+    btn.disabled = n === 0;
+  }
+  ticks.forEach(function (t) { t.addEventListener('change', count); });
+  count();
+})();
+
 (function () {
   document.querySelectorAll('form').forEach(function (form) {
     var note = form.querySelector('[name=payment_note]');
