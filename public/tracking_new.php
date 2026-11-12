@@ -469,12 +469,27 @@ function trk_financiers(): array
 }
 
 layout_top('New installation certificate');
-layout_back('tracking_list.php', 'Back to installations');
+layout_back('tracking_list.php', 'Back to Tracking Installations');
 ?>
-<h1>New Installation Certificate</h1>
-<p class="hint">For a vehicle tracking unit. The expiry date is worked out from the subscription
+
+<style>
+  .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+     /* ---- a little wider once there is room ---- */
+  .vfy h1.vfy-title {
+    margin: 0 0 6px;
+    font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+    line-height: 1.25; color: #0D4F72;
+    padding-left: 12px; border-left: 4px solid #8CC63F;
+  }
+  @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+  .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5; text-align: justified; }
+
+</style>
+<div class="vfy">
+<h1 class="vfy-title">New Installation Certificate</h1>
+<p class="vfy-sub">For a vehicle tracking unit. The expiry date is worked out from the subscription
 date &mdash; twelve months, ending the day before the anniversary. The certificate goes to
-accounts when you save, and takes its serial number once they confirm the payment.</p>
+accounts when you save, and takes its serial number once they confirm the payment.</p></div>
 
 <?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
 

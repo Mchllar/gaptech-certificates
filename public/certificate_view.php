@@ -180,7 +180,7 @@ if (!$cert) {
     layout_top('Certificate');
     echo '<h1>Not found</h1><p class="error">There is no certificate with that reference. '
        . 'It may have been opened from an old link.</p>'
-       . '<p><a class="button" href="index.php">Back to certificates</a></p>';
+       . '<p><a class="button" href="index.php">Back to SG. Certificates</a></p>';
     layout_bottom();
     exit;
 }
@@ -262,15 +262,28 @@ $label = function_exists('certificate_label')
     : ($cert['number'] ? 'No. ' . $cert['number'] : 'Draft ' . $cert['id']);
 
 layout_top('Certificate ' . $label);
-layout_back('index.php', 'Back to certificates');
+layout_back('index.php', 'Back to SG. Certificates');
 ?>
+<style>
+  .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+     /* ---- a little wider once there is room ---- */
+  .vfy h1.vfy-title {
+    margin: 0 0 6px;
+    font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+    line-height: 1.25; color: #0D4F72;
+    padding-left: 12px; border-left: 4px solid #8CC63F;
+  }
+  @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+  .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5; text-align: justified; }
 
-<h1><?= e($label) ?>
-  <?php /*
-    The class comes from the token, the words from the label. A scheduled
-    certificate reads "Starts 1 December 2026" rather than "Scheduled", because a
-    status that makes you ask "when?" when the answer is known is doing half a job.
-  */ ?>
+</style>
+<div class="vfy">
+  <h1 class="vfy-title"><?= e($label) ?>
+    <?php /*
+      The class comes from the token, the words from the label. A scheduled
+      certificate reads "Starts 1 December 2026" rather than "Scheduled", because a
+      status that makes you ask "when?" when the answer is known is doing half a job.
+    */ ?>
   <span class="status-pill status-<?= e(strtolower(str_replace(' ', '-', $status))) ?>">
     <?= e(function_exists('certificate_status_label')
             ? certificate_status_label($cert) : $status) ?></span>
@@ -308,7 +321,7 @@ layout_back('index.php', 'Back to certificates');
      <a href="certificate_view.php?id=<?= (int)$replacement['id'] ?>">Open the one in
      force now</a> (No. <?= e($replacement['number']) ?>).</p>
 <?php endif; ?>
-
+</div>
 <!-- ------------------------------------------------------------------ -->
 <!-- Details                                                            -->
 <!--                                                                    -->

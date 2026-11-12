@@ -144,13 +144,28 @@ if ($approved && !$live) {
 }
 
 layout_top('');
-layout_back('tracking_list.php', 'Back to Tracker Installations');
+layout_back('tracking_list.php', 'Back to Tracking Installations');
 ?>
-<h1><?= e(tracking_label($cert)) ?>
+
+<style>
+  .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+     /* ---- a little wider once there is room ---- */
+  .vfy h1.vfy-title {
+    margin: 0 0 6px;
+    font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+    line-height: 1.25; color: #0D4F72;
+    padding-left: 12px; border-left: 4px solid #8CC63F;
+  }
+  @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+  .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5; text-align: justified; }
+
+</style>
+<div class="vfy">
+<h1 class="vfy-title"><?= e(tracking_label($cert)) ?>
   <span class="status-pill status-<?= e(strtolower(str_replace(' ', '-', $status))) ?>">
     <?= e($status) ?></span></h1>
-<p class="hint" style="text-align:left">Tracking installation certificate for
-  <?= e($cert['reg_no']) ?> &mdash; <?= e($cert['client_name']) ?>.</p>
+<p class="vfy-sub">Tracking installation certificate for
+  <?= e($cert['reg_no']) ?> &mdash; <?= e($cert['client_name']) ?>.</p></div>
 
 <?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
 

@@ -474,15 +474,27 @@ layout_top('Dashboard');
 .dash-late { color: #C3121A; font-weight: 600; }
 
 @media print { .dash-panel, .dash-tile { break-inside: avoid; } }
-</style>
 
-<h1>Dashboard</h1>
-<p class="hint">
+  .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+     /* ---- a little wider once there is room ---- */
+  .vfy h1.vfy-title {
+    margin: 0 0 6px;
+    font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+    line-height: 1.25; color: #0D4F72;
+    padding-left: 12px; border-left: 4px solid #8CC63F;
+  }
+  @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+  .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5; text-align: justified; }
+
+</style>
+<div class="vfy">
+<h1 class="vfy-title">Dashboard</h1>
+<p class="vfy-sub">
   Speed governors and tracker installations together, as at <?= e(fmt_date($today->format('Y-m-d'))) ?>.
   The tiles count <strong>vehicles</strong>; the mix below counts <strong>certificates</strong>.
-  A vehicle renewed four times is one covered vehicle and four certificates.
+ 
 </p>
-
+ </div>
 <div class="dash-tiles">
   <div class="dash-tile dash-ok">
     <b><?= $sum('covered') ?></b><span>Vehicles covered today</span>

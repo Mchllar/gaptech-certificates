@@ -65,7 +65,12 @@ $sigSrc    = $have($sigFile)   ? $assets . '/' . basename($sigFile)   : '';
 $stampSrc  = $have($stampFile) ? $assets . '/' . basename($stampFile) : '';
 
 $status    = $d['cert']['status'] ?? 'Valid';
-$watermark = in_array($status, ['Voided', 'Superseded', 'Expired', 'Pending approval', 'Rejected'], true)
+
+// A certificate whose unit has been taken off is the one that most needs saying
+// so on the paper: it looks completely normal otherwise, and the customer may
+// still be holding it months later.
+$watermark = in_array($status, ['Voided', 'Superseded', 'Expired', 'Pending approval',
+                                'Rejected', 'Unit removed'], true)
     ? strtoupper($status) : '';
 
 // The sentence reads "on __/__/20__", so the installation date is split three ways.

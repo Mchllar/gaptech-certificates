@@ -70,6 +70,12 @@ function tracking_status(array $cert): string
     if ($cert['status'] === 'voided') {
         return 'Voided';
     }
+    // Before the expiry test, deliberately. A tracker taken off in November is
+    // not "expired" in December - it is gone, and calling it expired invites
+    // somebody to renew cover for a vehicle with no unit in it.
+    if (($cert['status'] ?? '') === 'removed') {
+        return 'Unit removed';
+    }
     if ($cert['status'] === 'superseded') {
         return 'Superseded';
     }
@@ -601,35 +607,6 @@ function tracking_pdf(array $cert, bool $force = false): ?string
 
     return $pdfPath;
 }
-
-/**
- * THE THREE MISSING FUNCTIONS - append to the end of app/tracking.php.
- *
- * Open app/tracking.php, go to the very bottom, and paste everything below the
- * line. Nothing already in the file changes. There is no closing ?> to work
- * around - the file does not have one, and should not.
- *
- * These are what tracking_view.php is already calling:
- *
- *   remove_tracking_unit()     the Remove unit action - the one that is failing
- *   tracking_imei_in_use()     stops one IMEI being certified on two vehicles
- *   tracking_device_history()  everywhere a unit has been
- *
- * Then check it:   C:\xampp\php\php.exe -l app\tracking.php
- *
- * SEPARATELY: tracking_status() also needs one new line, for 'removed'. Check
- * first with
- *
- *     findstr /n "Unit removed" app\tracking.php
- *
- * If that prints nothing, the replacement is in my message - it is a REPLACE,
- * not an append, because tracking_status() already exists in your file and
- * pasting a second copy is a fatal error.
- */
-
-// ===========================================================================
-// PASTE FROM HERE
-// ===========================================================================
 
 /**
  * Record that the tracker has been taken off this vehicle.

@@ -42,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 layout_top('');
-layout_back('index.php', 'Back to SG Certificates');
+layout_back('index.php', 'Back to SG. Certificates');
 ?>
 <style>
     .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }

@@ -124,7 +124,23 @@ if ($isAdm) {
 
 layout_top('Installations');
 ?>
-<h1>Tracking Installations</h1>
+
+<style>
+  .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+     /* ---- a little wider once there is room ---- */
+  .vfy h1.vfy-title {
+    margin: 0 0 6px;
+    font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+    line-height: 1.25; color: #0D4F72;
+    padding-left: 12px; border-left: 4px solid #8CC63F;
+  }
+  @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+  .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5; text-align: justified; }
+
+</style>
+<data class="vfy">
+<h1 class="vfy-title">Tracking Installations</h1>
+<p class="vfy-sub">Search, filter and review the tracking certificates.</p>
 
 <?php if ((int)$counts['pending_count'] > 0): ?>
   <p class="hint" style="text-align:left">

@@ -145,8 +145,23 @@ $expiring = q("SELECT c.id, c.number, c.expiry_date, v.reg_no, cl.name AS client
 
 layout_top('Governor Installations');
 ?>
-<h1>Governor Installations</h1>
-<p class="page-intro">Search, filter and review the speed governor certificates.</p>
+<style>
+  .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700; letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
+     /* ---- a little wider once there is room ---- */
+  .vfy h1.vfy-title {
+    margin: 0 0 6px;
+    font-size: 22px; font-weight: 700; letter-spacing: -.4px;
+    line-height: 1.25; color: #0D4F72;
+    padding-left: 12px; border-left: 4px solid #8CC63F;
+  }
+  @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+  .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5; text-align: justified; }
+
+</style>
+
+<div class="vfy">
+<h1 class="vfy-title">Governor Installations</h1>
+<p class="vfy-sub">Search, filter and review the speed governor certificates.</p>
 
 <?php if ((int)$counts['pending_count'] > 0): ?>
   <p class="hint" style="text-align:left">
@@ -168,7 +183,7 @@ layout_top('Governor Installations');
     <a class="button" href="certificate_new.php">New certificate</a>
   <?php endif; ?>
 </form>
-
+  </div>
 <div class="filters">
   <?php foreach ([
       'all' => ['All', $counts['all_count']],
@@ -239,6 +254,8 @@ layout_top('Governor Installations');
 </div>
 
 <?php if ($isAdm): ?>
+
+  
 <h2>Expiring in the next 30 days</h2>
 <table>
   <tr><th>Expires</th><th>No.</th><th>Vehicle</th><th>Customer</th><th></th></tr>
