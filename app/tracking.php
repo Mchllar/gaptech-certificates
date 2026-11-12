@@ -523,40 +523,249 @@ function render_tracking_sheet(array $cert, string $mode = 'screen'): string
 }
 
 /**
- * Produce the PDF and remember where it is. Returns the file path, or null when
- * wkhtmltopdf is not configured - the browser's own "Save as PDF" is used instead.
+ * Replaces tracking_pdf() in app/tracking.php.
+ *
+ * Find the line
+ *
+ *     function tracking_pdf(array $cert, bool $force = false): ?string
+ *
+ * and replace everything from there down to its closing brace - the line with a
+ * single } just before the next function - with the function below.
+ *
+ * ---------------------------------------------------------------------------
+ * Why "PDF conversion is not set up on this machine"
+ * ---------------------------------------------------------------------------
+ * Nothing is missing. The tracking module was still asking for wkhtmltopdf:
+ *
+ *     if (empty($config['wkhtmltopdf'])) { return null; }
+ *
+ * and that setting has been empty since the governor side moved to headless
+ * Chrome. So the function returned null, tracking_print.php took that to mean
+ * "no engine on this machine", and showed the message - while the governors
+ * were rendering perfectly through a different route the whole time.
+ *
+ * Everything the governors use already handles tracking:
+ *
+ *   pdf_engine()            finds Chrome, Edge or wkhtmltopdf
+ *   pdf_sheet.php           already accepts kind=tracking and renders the sheet
+ *   pdf_render_certificate  signs a loopback URL and drives the browser
+ *   pdf_file_is_sane()      checks what is on disk is a real PDF the right way up
+ *
+ * so this is the governor's certificate_pdf() with three things changed: the
+ * folder, the table, and portrait instead of landscape.
+ */
+
+/**
+ * The installation certificate as a PDF, rendered once and kept.
+ *
+ * Returns null when there is no engine at all - the caller then falls back to
+ * the browser's own print dialog rather than showing an error.
  */
 function tracking_pdf(array $cert, bool $force = false): ?string
 {
     global $config;
-    if (empty($config['wkhtmltopdf'])) {
+
+    // Nothing to render with. Hand back null so tracking_print.php can offer the
+    // print dialog instead of failing in front of a customer.
+    if (pdf_engine() === null) {
         return null;
     }
+
     $dir = rtrim((string)$config['storage'], '/\\') . '/tracking';
     if (!is_dir($dir) && !mkdir($dir, 0770, true) && !is_dir($dir)) {
         throw new RuntimeException('Cannot create storage folder: ' . $dir);
     }
+
     $pdfPath = $dir . '/installation-' . tracking_label($cert) . '.pdf';
-    if (!$force && is_file($pdfPath) && !empty($cert['pdf_path'])) {
+
+    // Cached, but checked.
+    //
+    // is_file() alone was the fault that cost us an afternoon on the governor
+    // side: once a bad PDF was stored - one that rendered as "Not found.", say -
+    // it was served for ever, because the renderer underneath was never reached
+    // again. pdf_file_is_sane() looks at what is actually on disk.
+    //
+    // 'portrait' here, where the governor passes 'landscape'. The check reads
+    // the page box, so a sheet rendered the wrong way round is re-made rather
+    // than handed to a customer sideways.
+    if (!$force && !empty($cert['pdf_path']) && pdf_file_is_sane($pdfPath, 'portrait')) {
         return $pdfPath;
     }
 
-    $htmlPath = tempnam(sys_get_temp_dir(), 'trk') . '.html';
-    file_put_contents($htmlPath, render_tracking_sheet($cert, 'pdf'));
-
-    $cmd = escapeshellarg((string)$config['wkhtmltopdf'])
-        . ' --quiet --page-size A4 --orientation Portrait'
-        . ' --margin-top 0 --margin-bottom 0 --margin-left 0 --margin-right 0'
-        . ' --dpi 96 --enable-local-file-access'
-        . ' ' . escapeshellarg($htmlPath) . ' ' . escapeshellarg($pdfPath) . ' 2>&1';
-    exec($cmd, $output, $status);
-    @unlink($htmlPath);
-
-    if ($status !== 0 || !is_file($pdfPath)) {
-        throw new RuntimeException('wkhtmltopdf failed: ' . implode("\n", $output));
-    }
+    // Both pages come out together - the certificate and the guarantee terms -
+    // because the sheet declares the page break itself and Chrome honours it.
+    pdf_render_certificate('tracking', (int)$cert['id'], $pdfPath, 'portrait');
 
     q('UPDATE tracking_certificates SET pdf_path = ?, pdf_sha256 = ? WHERE id = ?',
         [$pdfPath, hash_file('sha256', $pdfPath), $cert['id']]);
+
     return $pdfPath;
+}
+
+/**
+ * THE THREE MISSING FUNCTIONS - append to the end of app/tracking.php.
+ *
+ * Open app/tracking.php, go to the very bottom, and paste everything below the
+ * line. Nothing already in the file changes. There is no closing ?> to work
+ * around - the file does not have one, and should not.
+ *
+ * These are what tracking_view.php is already calling:
+ *
+ *   remove_tracking_unit()     the Remove unit action - the one that is failing
+ *   tracking_imei_in_use()     stops one IMEI being certified on two vehicles
+ *   tracking_device_history()  everywhere a unit has been
+ *
+ * Then check it:   C:\xampp\php\php.exe -l app\tracking.php
+ *
+ * SEPARATELY: tracking_status() also needs one new line, for 'removed'. Check
+ * first with
+ *
+ *     findstr /n "Unit removed" app\tracking.php
+ *
+ * If that prints nothing, the replacement is in my message - it is a REPLACE,
+ * not an append, because tracking_status() already exists in your file and
+ * pasting a second copy is a fatal error.
+ */
+
+// ===========================================================================
+// PASTE FROM HERE
+// ===========================================================================
+
+/**
+ * Record that the tracker has been taken off this vehicle.
+ *
+ * The certificate is kept, with the date and the reason. The vehicle stops being
+ * covered from that moment, because there is no longer a box in it - the dashboard
+ * and the renewal lists both read "covered" from the certificate in force, so this
+ * is what takes it out of them.
+ *
+ * The remaining subscription time ends here. It belonged to the customer who had
+ * the vehicle; the next customer buys their own. Nothing is refunded or carried
+ * across by the system, and nothing pretends to.
+ */
+function remove_tracking_unit(array $cert, array $user, string $reason, string $when = ''): array
+{
+    $reason = trim($reason);
+    if ($reason === '') {
+        throw new RuntimeException('Say why the unit is being removed.');
+    }
+
+    if (($cert['approval_status'] ?? '') !== 'approved') {
+        throw new RuntimeException('Only a released certificate can have its unit removed. '
+            . 'A pending one should be sent back instead.');
+    }
+    if (($cert['status'] ?? '') === 'removed') {
+        throw new RuntimeException('That unit is already recorded as removed.');
+    }
+    if (in_array($cert['status'] ?? '', ['voided', 'superseded'], true)) {
+        throw new RuntimeException('That certificate is already ' . $cert['status']
+            . ', so there is nothing to remove from it.');
+    }
+
+    $when = trim($when) !== '' ? $when : date('Y-m-d');
+    if (strtotime($when) === false) {
+        throw new RuntimeException('That removal date is not a date.');
+    }
+    // A unit cannot come off before it went on, and recording a removal in the
+    // future would take a vehicle out of cover it still has.
+    if (strtotime($when) < strtotime((string)$cert['installed_on'])) {
+        throw new RuntimeException('The unit cannot be removed before it was installed ('
+            . fmt_date((string)$cert['installed_on']) . ').');
+    }
+    if (strtotime($when) > strtotime(date('Y-m-d'))) {
+        throw new RuntimeException('A removal cannot be dated in the future.');
+    }
+
+    q("UPDATE tracking_certificates
+          SET status = 'removed', removed_on = ?, removed_reason = ?, removed_by = ?
+        WHERE id = ?",
+      [date('Y-m-d', strtotime($when)), $reason, (int)$user['id'], $cert['id']]);
+
+    audit('remove_tracking_unit', 'tracking_certificate', (int)$cert['id'], [
+        'reg_no'      => $cert['reg_no'],
+        'imei'        => $cert['imei'],
+        'removed_on'  => date('Y-m-d', strtotime($when)),
+        'reason'      => $reason,
+        'cover_ended' => $cert['expiry_date'],   // what the customer gave up
+    ]);
+
+    return q('SELECT * FROM tracking_certificates WHERE id = ?', [$cert['id']])->fetch();
+}
+
+/**
+ * Is this IMEI already spoken for?
+ *
+ * Returns the certificate holding it, or null. Read the row's approval_status to
+ * tell the two cases apart - they need different words, not different rules.
+ *
+ *   approved + issued   the unit is in that vehicle now
+ *   pending             a certificate awaiting approval has already claimed it
+ *
+ * ---------------------------------------------------------------------------
+ * Pending certificates count, and that is the whole point
+ * ---------------------------------------------------------------------------
+ * The first version of this asked only about approved certificates, on the
+ * reasoning that a pending one has not been released so the unit is not really in
+ * service. True, and beside the point.
+ *
+ * A certificate sitting with accounts is a CLAIM on that unit. If a second
+ * certificate is raised for another vehicle with the same IMEI while the first is
+ * waiting, both pass the check, both go to accounts, and both get approved - two
+ * vehicles holding one box, which is exactly what this function exists to prevent.
+ * The window is however long accounts take, so days, not milliseconds.
+ *
+ * Rejected certificates are excluded: that claim was turned down. Removed, voided
+ * and superseded are excluded too - the unit has left, the certificate was an
+ * error, or it is a renewal of the same vehicle where the unit never moved.
+ *
+ * "Approved" deliberately does NOT mean unexpired. An expired certificate whose
+ * unit was never removed still means the box is in that vehicle.
+ */
+function tracking_imei_in_use(string $imei, ?int $exceptCertId = null): ?array
+{
+    $imei = trim($imei);
+    if ($imei === '') {
+        return null;
+    }
+
+    $row = q("SELECT c.*
+                FROM tracking_certificates c
+                JOIN tracking_imeis i ON i.cert_id = c.id
+               WHERE i.imei = ?
+                 AND c.approval_status IN ('approved', 'pending')
+                 AND c.status = 'issued'
+                 -- cast needed: PostgreSQL cannot infer the type of a parameter
+                 -- that only ever appears in an IS NULL test
+                 AND (?::int IS NULL OR c.id <> ?::int)
+               -- an approved claim outranks a pending one, so the message names
+               -- the vehicle the unit is actually in when both exist
+               ORDER BY (c.approval_status = 'approved') DESC,
+                        c.subscription_date DESC, c.id DESC
+               LIMIT 1", [$imei, $exceptCertId, $exceptCertId])->fetch();
+
+    return $row ?: null;
+}
+
+/**
+ * Everywhere this unit has been, newest first.
+ *
+ * The question anybody holding a recovered tracker asks, and the one support asks
+ * when a customer says their vehicle stopped reporting. Renewals of the same
+ * vehicle are included - they are part of the unit's life even though it did not
+ * move - so the caller can show them or fold them up as it likes.
+ */
+function tracking_device_history(string $imei): array
+{
+    $imei = trim($imei);
+    if ($imei === '') {
+        return [];
+    }
+
+    return q("SELECT c.id, c.number, c.reg_no, c.client_name, c.status, c.approval_status,
+                     c.installed_on, c.subscription_date, c.expiry_date,
+                     c.removed_on, c.removed_reason
+                FROM tracking_certificates c
+                JOIN tracking_imeis i ON i.cert_id = c.id
+               WHERE i.imei = ?
+               ORDER BY c.subscription_date DESC, c.id DESC", [$imei])->fetchAll();
 }

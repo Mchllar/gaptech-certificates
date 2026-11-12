@@ -166,7 +166,11 @@ function render_sheet(array $cert, string $mode = 'screen'): string
         $zoom = round($sheetToCss, 5);
     }
 
-    $qr = QrCode::dataUri(verify_url($cert));
+    // No address, no QR. A code encoding an empty string still scans as a QR -
+    // it just says nothing - so it looks correct on the sheet and fails only in
+    // the customer's hands. Printing nothing is honest; printing this is not.
+    $verify = verify_url($cert);
+    $qr= $verify !== '' ? QrCode::dataUri($verify) : '';
     $certno_img = certificate_number_svg((string)$cert['number']);
     $logo = $assets . '/gap_logo.png';
     $logo_gold = $assets . '/gap_logo_gold.png';

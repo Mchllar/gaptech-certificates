@@ -23,6 +23,7 @@ if (!$cert) {
 }
 
 $download = !empty($_GET['download']);
+$print = !empty($_GET['print']);
 
 // Accounts review certificates, they do not issue them, so the PDF is not theirs
 // to hand out.
@@ -63,5 +64,29 @@ if ($download) {
     exit;
 }
 
-audit('view_tracking_sheet', 'tracking_certificate', $id, ['status' => tracking_status($cert)]);
-echo render_tracking_sheet($cert, 'screen');
+if ($print) {
+    q('UPDATE tracking_certificates SET print_count = print_count + 1 WHERE id = ?', [$id]);
+    audit('print_tracking_sheet', 'tracking_certificate', $id,
+          ['status' => tracking_status($cert)]);
+} else {
+    audit('view_tracking_sheet', 'tracking_certificate', $id,
+          ['status' => tracking_status($cert)]);
+}
+
+$html = render_tracking_sheet($cert, 'screen');
+
+if ($print) {
+    // Open the browser's print dialog as soon as the page has drawn, the same
+    // way certificate_print.php does. On load rather than straight away: the
+    // guilloche background and the logos have to be in before the preview is
+    // generated, or the printer gets a half-drawn page.
+    //
+    // No @page override here - the tracking sheet already declares A4 portrait
+    // for itself, and the governor sheet only overrides it because that one is
+    // landscape.
+    $html = str_replace('</head>',
+        "<script>window.addEventListener('load', function () { window.print(); });"
+        . "</script>\n</head>", $html);
+}
+
+echo $html;

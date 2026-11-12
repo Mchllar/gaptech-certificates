@@ -327,7 +327,7 @@ layout_back('tracking_list.php', 'Back to Tracker Installations');
 <?php if ($isAdm): ?>
   <div class="row-actions" style="margin-top:22px; display:flex; flex-wrap:wrap; gap:10px">
     <?php if ($live): ?>
-      <a class="button" href="tracking_print.php?id=<?= (int)$cert['id'] ?>" target="_blank">Print</a>
+      <a class="button" href="tracking_print.php?id=<?= (int)$cert['id'] ?>&amp;print=1" target="_blank">Print</a>
       <a class="button secondary" href="tracking_print.php?id=<?= (int)$cert['id'] ?>&amp;download=1">Download PDF</a>
     <?php elseif ($approved): ?>
       <a class="button secondary" href="tracking_print.php?id=<?= (int)$cert['id'] ?>" target="_blank">

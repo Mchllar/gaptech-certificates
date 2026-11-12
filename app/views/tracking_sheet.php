@@ -51,6 +51,13 @@ $caLogo   = $pick('ca_logo');
 $gapLogo  = $pick('gap_logo');
 $goldMark = $pick('gap_logo_gold');
 
+// The GAP symbol as it appears on the printed stationery, and the guilloche
+// background. $pick() finds either whatever file type it happens to be, and
+// returns '' when it is not there - so a missing file prints a plain sheet
+// rather than a broken image.
+$houseMark = $pick('gap_mark') ?: $goldMark;
+$security  = $pick('security_bg');
+
 /** The signature and stamp are stored as a setting holding a path under assets/. */
 $sigFile   = (string)($d['company']['signature'] ?? setting('signature_image', ''));
 $stampFile = (string)($d['company']['stamp'] ?? setting('stamp_image', ''));
@@ -88,8 +95,10 @@ $rows = [
     ['Colour',              $d['vehicle']['colour']],
     ['Ownership Details',   $d['vehicle']['ownership']],
     ['FINANCIER',           $d['vehicle']['financier'] !== '' ? $d['vehicle']['financier'] : 'N/A'],
-    [$trkImeis && count($trkImeis) > 1 ? 'Track IMEI Nos.' : 'Track IMEI No.', $trkLine],
-    ['Subscription Date',   $shortDate($d['cert']['subscription_date'] ?? '')],
+    // Always singular, as the printed certificate reads. Two units still print
+    // on the one line, separated by a slash - the label names the row, not the
+    // number of boxes in it.
+    ['Track IMEI No.', $trkLine],    ['Subscription Date',   $shortDate($d['cert']['subscription_date'] ?? '')],
     ['Expiry Date',         $shortDate($d['cert']['expiry_date'] ?? '')],
 ];
 ?>
@@ -129,11 +138,38 @@ $rows = [
   }
   .inner { position: relative; z-index: 2; height: 271mm; display: flex; flex-direction: column; }
 
-  /* The faint house mark the printed stationery carries behind the table. */
-  .paper-mark {
-    position: absolute; left: 50%; top: 115mm; transform: translateX(-50%);
-    width: 80mm; opacity: 0.07; z-index: 1; pointer-events: none;
+  /* ---------- the security background ----------
+
+     An <img>, not a CSS background-image, and that is deliberate: a browser
+     printing a page drops background images unless it is told not to, and
+     "the watermark is missing but only when printed" is a fault nobody finds
+     until a customer is holding the sheet. An image prints.
+
+     It sits at z-index 0, under everything, and the page already carries
+     overflow:hidden so it is clipped to the sheet.                          */
+  .security {
+    position: absolute; inset: -6mm;           /* bleed past the trim */
+    width: calc(100% + 12mm); height: calc(100% + 12mm);
+    z-index: 0; pointer-events: none;
   }
+  /* The GAP mark behind the table, as on the printed certificate. */
+
+    /* The GAP mark behind the table. Every property it needs is here, so it
+     does not matter what order the rules are in or what was replaced earlier. */
+  .paper-mark {
+    position: absolute;
+    left: 50%;
+    top: 108mm;
+    transform: translateX(-50%);
+    width: 115mm;
+    opacity: 0.26;
+    z-index: 1;
+    pointer-events: none;
+  }
+
+  table td { vertical-align: middle; }
+
+  table td { padding-top: 3.1mm; padding-bottom: 3.1mm; }
 
   /* ---------- serial ---------- */
   .serial { text-align: right; font-size: 4.3mm; }
@@ -236,20 +272,23 @@ $rows = [
     transform: rotate(-22deg); z-index: 4; pointer-events: none;
   }
 
-  /* On screen only: a grey surround and a print button. Neither is printed. */
-  .screen-only { max-width: 210mm; margin: 6mm auto; text-align: right; }
-  .screen-only button, .screen-only a {
-    font: inherit; font-size: 14px; padding: 8px 16px; border-radius: 6px; cursor: pointer;
-    border: 1px solid var(--navy); background: var(--navy); color: #fff; text-decoration: none;
-  }
-  .screen-only a.secondary { background: #fff; color: var(--navy); }
   @media print {
-    body { background: #fff; }
+    body { display: block !important; zoom: 1 !important; background: #fff; }
     .screen-only { display: none !important; }
-    .sheet { margin: 0; box-shadow: none; }
+    .sheet, .terms-sheet { margin: 0; box-shadow: none; }
   }
+
   @media screen {
-    .sheet { box-shadow: 0 2mm 8mm rgba(13, 79, 114, 0.18); }
+    body { display: block; padding-bottom: 10mm; }
+    .screen-only { max-width: 210mm; margin: 6mm auto; text-align: right; }
+
+    /* The back directly under the front, both centred on the same axis.
+       The terms page was drifting left because only .sheet had margin auto -
+       .terms-sheet was taking the browser's default and sitting hard left. */
+    .sheet, .terms-sheet {
+      margin: 0 auto 8mm;
+      box-shadow: 0 2mm 8mm rgba(13, 79, 114, 0.18);
+    }
   }
 </style>
 </head>
@@ -263,9 +302,9 @@ $rows = [
 <?php endif; ?>
 
 <div class="sheet">
+  <?php if ($security): ?><img class="security" src="<?= e($security) ?>" alt=""><?php endif; ?>
   <?php if ($watermark): ?><div class="wm"><?= e($watermark) ?></div><?php endif; ?>
-  <?php if ($goldMark): ?><img class="paper-mark" src="<?= e($goldMark) ?>" alt=""><?php endif; ?>
-
+  <?php if ($houseMark): ?><img class="paper-mark" src="<?= e($houseMark) ?>" alt=""><?php endif; ?>
   <div class="inner">
 
     <div class="serial"><b>Serial No.</b><span class="no"><?= e($d['cert']['number']) ?></span></div>
