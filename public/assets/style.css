@@ -94,7 +94,10 @@ body.plain .shell { min-height:100vh; }
 .menu-toggle { display:none; background:none; border:0; color:var(--ink); font-size:21px;
                cursor:pointer; padding:0 4px; }
 
-body.has-sidebar main { max-width:1100px; margin:22px auto; padding:0 22px 40px; width:100%; }
+/* border-box: with width:100% the side padding used to be added ON TOP, so every
+   signed-in page was 44px wider than a window under ~1150px and scrolled sideways.
+   max-width grows by the same 44px, so the content is exactly as wide as before. */
+body.has-sidebar main { box-sizing:border-box; max-width:1144px; margin:22px auto; padding:0 22px 40px; width:100%; }
 body.has-sidebar h1 { font-size:20px; }
 
 .scrim { display:none; position:fixed; inset:0; background:rgba(15,20,35,0.45); z-index:35; }
@@ -396,9 +399,15 @@ body.plain footer { color: var(--muted); }
 .approve-panel .card-form { border:0; box-shadow:none; padding:0; background:transparent; }
 .approve-panel .details { margin-bottom:14px; }
 
-.reject-form { display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap;
-               border-top:1px solid var(--line); margin-top:18px; padding-top:16px; }
-.reject-form label { flex:1; min-width:260px; margin:0; }
+.reject-form { display:block; border-top:1px solid var(--line); margin-top:18px; padding-top:16px; }
+/* "main form.reject-form" outranks the shared "main form label/input" rules, which add
+   margins that pushed the button out of line with the box. */
+main form.reject-form .reject-label { display:block; margin:0 0 8px; }
+main form.reject-form .reject-row { display:flex; gap:10px; align-items:stretch; flex-wrap:wrap; }
+/* !important on the margin only: content.css gives every form input margin-top:6px with a
+   longer selector (four :not()s), and that 6px is exactly what left the box below the button. */
+main form.reject-form .reject-row input { flex:1 1 260px; min-width:0; width:auto; margin:0 !important; }
+main form.reject-form .reject-row button { flex:none; margin:0; padding-top:0; padding-bottom:0; }
 
 /* certificate states */
 .status-pending { color:#8A5A00; font-weight:600; }

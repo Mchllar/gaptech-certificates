@@ -100,7 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $new = $snapshot;
             $new['client'] = ['name' => $form['client_name'], 'phone' => $form['client_phone'],
                               'address' => $form['client_address']];
-            $new['vehicle'] = ['reg_no' => $form['reg_no'], 'make' => $form['make'],
+            $new['vehicle'] = ['reg_no' => plate_display($form['reg_no']), 'make' => $form['make'],
                                'chassis_no' => $form['chassis_no']];
             $new['device'] = ['model' => $form['device_model'], 'serial_no' => $form['serial_no'],
                               'unit_code' => $form['serial_no'], 'set_speed_kmh' => (int)$form['set_speed_kmh']];
@@ -130,8 +130,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // keep the underlying records in step, so the next renewal is prefilled correctly
             q('UPDATE clients SET name = ?, phone = ?, address = ?, updated_at = now() WHERE id = ?',
                 [$form['client_name'], $form['client_phone'], $form['client_address'], $cert['client_id']]);
-            q('UPDATE vehicles SET reg_no = upper(?), make = ?, chassis_no = ? WHERE id = ?',
-                [$form['reg_no'], $form['make'], $form['chassis_no'], $cert['vehicle_id']]);
+            q('UPDATE vehicles SET reg_no = ?, make = ?, chassis_no = ? WHERE id = ?',
+                [plate_display($form['reg_no']), $form['make'], $form['chassis_no'], $cert['vehicle_id']]);
             q('UPDATE devices SET model = ?, serial_no = ?, set_speed_kmh = ? WHERE id = ?',
                 [$form['device_model'], $form['serial_no'], (int)$form['set_speed_kmh'], $cert['device_id']]);
             q('UPDATE installations SET technician = ?, installed_on = ? WHERE id = ?',

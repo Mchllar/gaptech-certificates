@@ -281,7 +281,9 @@ layout_top('Governor Installations');
               data-id="<?= (int)$row['id'] ?>"
               data-reg="<?= e($row['reg_no']) ?>"
               data-client="<?= e($row['client_name']) ?>"
-              data-cert="<?= e((string)$row['number']) ?>">Renew</button>
+              data-cert="<?= e((string)$row['number']) ?>"
+              <?php [$rs, $re] = renewal_dates((string)$row['expiry_date']); ?>
+              data-start="<?= e(fmt_date($rs)) ?>" data-end="<?= e(fmt_date($re)) ?>">Renew</button>
     </td>
   </tr>
   <?php endforeach; ?>

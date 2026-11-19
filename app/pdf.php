@@ -673,6 +673,35 @@ function pdf_render_certificate(string $kind, int $id, string $pdfPath, string $
  * something in it, and is it the right way round? Anything else is thrown away
  * and made again. A file this fails is a file nobody wanted.
  */
+/**
+ * Is a stored PDF at least as new as the design it was drawn from?
+ *
+ * A certificate's PDF is rendered once and kept. Without this, a change to the layout,
+ * the security background or the watermark only ever reached certificates nobody had
+ * downloaded yet: every PDF already on disk kept the old design for good. Now a stored
+ * PDF older than any of its design files is simply drawn again on its next download.
+ *
+ * Only the design changes - the details on a certificate come from its snapshot, which
+ * is frozen when it is issued, so a re-render prints exactly the same facts.
+ */
+function pdf_matches_design(string $pdfPath, string $kind): bool
+{
+    $root  = dirname(__DIR__);
+    $files = $kind === 'tracking'
+        ? ['app/views/tracking_sheet.php', 'app/views/tracking_terms.php', 'app/tracking.php',
+           'public/assets/security_bg.svg', 'public/assets/gap_mark.png']
+        : ['app/views/sheet.php', 'app/views/sheet_helpers.php', 'app/certificates.php',
+           'public/assets/sticker_bg.png'];
+
+    $newest = 0;
+    foreach ($files as $f) {
+        $t = @filemtime($root . '/' . $f);
+        if ($t !== false && $t > $newest) { $newest = $t; }
+    }
+    $made = @filemtime($pdfPath);
+    return $made !== false && $made >= $newest;
+}
+
 function pdf_file_is_sane(string $pdfPath, string $orientation): bool
 {
     if (!is_file($pdfPath) || filesize($pdfPath) < 1000) {

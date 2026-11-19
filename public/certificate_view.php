@@ -276,6 +276,8 @@ layout_back('index.php', 'Back to SG. Certificates');
   @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
   .vfy-sub { font-size: 14px; color: #7A8696; line-height: 1.5; text-align: justified; }
 
+  /* A second, quieter line inside a details cell: the customer's address. */
+  table.details .details-sub { display: block; margin-top: 2px; font-size: 12.5px; color: #7A8696; }
 </style>
 <div class="vfy">
   <h1 class="vfy-title"><?= e($label) ?>
@@ -339,17 +341,19 @@ layout_back('index.php', 'Back to SG. Certificates');
 <table class="details">
   <tr><th>Vehicle</th><td><?= e($snap(['vehicle', 'reg_no'], $cert['reg_no'])) ?></td>
       <th>Make</th><td><?= e($snap(['vehicle', 'make'], $cert['make'])) ?></td></tr>
+  <?php /* Governor model, set speed and technician are left off: the same on nearly every
+           certificate, so they were three rows of noise. They are still on the printed sheet. */ ?>
   <tr><th>Chassis no.</th><td><?= e($snap(['vehicle', 'chassis_no'], $cert['chassis_no'])) ?></td>
-      <th>Set speed</th>
-      <td><?= e($snap(['device', 'set_speed_kmh'], $cert['set_speed_kmh'])) ?> km/h</td></tr>
-  <tr><th>Governor</th><td><?= e($snap(['device', 'model'], $cert['device_model'])) ?></td>
       <th>Serial no.</th><td><?= e($snap(['device', 'serial_no'], $cert['serial_no'])) ?></td></tr>
-  <tr><th>Customer</th><td><?= e($snap(['client', 'name'], $cert['client_name'])) ?></td>
+  <?php /* The address sits under the customer's name, as on a letter. As its own row it was
+           the fifteenth field: an odd one out that always left half a row empty. Every
+           state of this table (pending, released, rejected) now pairs up evenly. */
+        $addr = trim((string)$snap(['client', 'address'], $cert['client_address'])); ?>
+  <tr><th>Customer</th><td><?= e($snap(['client', 'name'], $cert['client_name'])) ?><?php
+        if ($addr !== '' && $addr !== '—'): ?><span class="details-sub"><?= e($addr) ?></span><?php endif; ?></td>
       <th>Contact</th><td><?= e($snap(['client', 'phone'], $cert['client_phone'])) ?></td></tr>
-  <tr><th>Address</th><td><?= e($snap(['client', 'address'], $cert['client_address'])) ?></td>
-      <th>Type</th><td><?= e($snap(['cert', 'type'], $cert['type'])) ?></td></tr>
-  <tr><th>Installed</th><td><?= e($snap(['installation', 'installed_on_fmt'], '—')) ?></td>
-      <th>Technician</th><td><?= e($snap(['installation', 'technician'], '—')) ?></td></tr>
+  <tr><th>Type</th><td><?= e($snap(['cert', 'type'], $cert['type'])) ?></td>
+      <th>Installed</th><td><?= e($snap(['installation', 'installed_on_fmt'], '—')) ?></td></tr>
   <?php if (!$rejected): ?>
     <tr><th>Issued</th><td><?= e(fmt_date($cert['issue_date'])) ?></td>
         <th>Expires</th><td><?= e(fmt_date($cert['expiry_date'])) ?></td></tr>
@@ -620,9 +624,13 @@ if ($payNote !== '') { $payCells[] = ['Message', '<a href="#" data-modal="#m-not
         onsubmit="return confirm('Send this back to the administrator?');">
     <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
     <input type="hidden" name="id" value="<?= (int)$cert['id'] ?>">
-    <label>Or send it back
-      <input name="reason" placeholder="Reason, e.g. no payment received" required></label>
-    <button type="submit" name="action" value="reject" class="danger">Send back</button>
+    <?php /* The label sits on its own line and the input and button share a row, so the
+             button lines up with the box it belongs to rather than with the label. */ ?>
+    <label for="rejReason" class="reject-label">Or send it back</label>
+    <div class="reject-row">
+      <input id="rejReason" name="reason" placeholder="Reason, e.g. no payment received" required>
+      <button type="submit" name="action" value="reject" class="danger">Send back</button>
+    </div>
   </form>
 <?php endif; ?>
 
@@ -679,7 +687,9 @@ $showCertActions = $live || ($isAdm && $inForce);
             data-id="<?= (int)$cert['id'] ?>"
             data-reg="<?= e((string)$cert['reg_no']) ?>"
             data-cert="<?= e((string)$cert['number']) ?>"
-            data-client="<?= e((string)$cert['client_name']) ?>">Renew certificate</button>
+            data-client="<?= e((string)$cert['client_name']) ?>"
+            <?php [$rs, $re] = renewal_dates((string)$cert['expiry_date']); ?>
+            data-start="<?= e(fmt_date($rs)) ?>" data-end="<?= e(fmt_date($re)) ?>">Renew certificate</button>
     <button type="button" class="button danger" data-modal="#m-void">Withdraw</button>
   <?php endif; ?>
 </div>

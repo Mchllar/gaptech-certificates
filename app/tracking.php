@@ -9,10 +9,35 @@
  * it does not require app/certificates.php, so one module can never break the other.
  */
 
+/**
+ * The subscription lengths on offer, in months. One list for the new-installation form,
+ * the renewal dialog and the server checks: when they were separate, the renewal dialog
+ * offered 6 years while the server only accepted 5, and quietly saved such a renewal as 1.
+ */
+const TRACKING_TERMS = [12 => '1 year', 24 => '2 years', 36 => '3 years',
+                        48 => '4 years', 60 => '5 years', 72 => '6 years'];
+
 // ---------------------------------------------------------------------------
 // Shared helpers. Defined here only if certificates.php has not already done so,
 // so whichever file loads first wins and the two never collide.
 // ---------------------------------------------------------------------------
+
+if (!function_exists('plate_display')) {
+    /**
+     * A registration as it is stored and printed: "KDK 259X", not "KDK259X". The same
+     * function as app/clients.php (which this module does not load). Anything typed WITH
+     * a space is left alone - the typist knows where a "GK A123A" space goes.
+     */
+    function plate_display(string $reg): string
+    {
+        $clean = strtoupper(trim((string)preg_replace('/\s+/', ' ', $reg)));
+        if (strpos($clean, ' ') === false
+            && preg_match('/^(K[A-Z]{2}|KM[A-Z]{2})([0-9]{3}[A-Z]?)$/', $clean, $m)) {
+            return $m[1] . ' ' . $m[2];
+        }
+        return $clean;
+    }
+}
 
 if (!function_exists('plate_key')) {
     /** A registration reduced to letters and digits, so KDF745B matches KDF 745B. */
@@ -141,7 +166,7 @@ function tracking_company(): array
         'emergency' => setting('tracking_emergency', ''),
         'email'     => setting('tracking_email', ''),
         'website'   => setting('tracking_website', ''),
-        'stamp'     => setting('stamp_image', ''),
+        'stamp'     => setting('tracking_stamp_image', ''),   // tracking only; governors use stamp_image
         'signature' => setting('signature_image', ''),
     ];
 }
@@ -236,6 +261,9 @@ function tracking_imei_clash(string $imei, string $regNo, ?int $ignoreCertId = n
 function create_tracking_cert(array $in, array $user, ?int $renewedFrom = null): array
 {
     $token = bin2hex(random_bytes(8));
+
+    // Stored and printed as "KDK 259X", whichever way it was typed.
+    $in['reg_no'] = plate_display((string)$in['reg_no']);
 
     // One box or two on the form; the certificate prints them in one box. Accepts
     // either 'imeis' (a list) or the old single 'imei', so nothing that still
@@ -416,7 +444,7 @@ function void_tracking_cert(array $cert, array $user, string $reason): array
  */
 function renew_tracking_cert(array $old, array $user, string $note, int $months = 12): array
 {
-    if (!in_array($months, [12, 24, 36, 48, 60], true)) {
+    if (!isset(TRACKING_TERMS[$months])) {
         $months = 12;
     }
     $ref = extract_payment_ref($note);
@@ -594,7 +622,8 @@ function tracking_pdf(array $cert, bool $force = false): ?string
     // 'portrait' here, where the governor passes 'landscape'. The check reads
     // the page box, so a sheet rendered the wrong way round is re-made rather
     // than handed to a customer sideways.
-    if (!$force && !empty($cert['pdf_path']) && pdf_file_is_sane($pdfPath, 'portrait')) {
+    if (!$force && !empty($cert['pdf_path']) && pdf_file_is_sane($pdfPath, 'portrait')
+        && pdf_matches_design($pdfPath, 'tracking')) { // redrawn after a design change
         return $pdfPath;
     }
 

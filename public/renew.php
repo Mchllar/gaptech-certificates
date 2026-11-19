@@ -18,9 +18,42 @@ csrf_check();
 
 $id  = (int)($_POST['id'] ?? 0);
 $old = q('SELECT * FROM certificates WHERE id = ?', [$id])->fetch();
+
+// Where to land afterwards. Only these two, never a URL taken from the form as it
+// stands: that would let a crafted link send someone off to any site after renewing.
+$fromList = ($_POST['back'] ?? '') === 'index.php';
+$backTo   = $fromList ? 'index.php' : 'certificate_view.php?id=' . $id;
+
 if (!$old) {
-    http_response_code(404);
-    exit('No such certificate.');
+    flash('That certificate could not be found, so nothing was renewed.');
+    redirect('index.php');
+}
+
+// Only the certificate actually in force can be renewed: released, and not withdrawn,
+// removed from the vehicle, or already replaced. The button is hidden otherwise; this
+// is the check that holds if the page was stale or the form was sent by hand.
+if ($old['approval_status'] !== 'approved'
+    || in_array((string)$old['status'], ['voided', 'removed', 'superseded'], true)) {
+    flash('Certificate ' . ($old['number'] ?: '') . ' is not the one in force, so it cannot be renewed.');
+    redirect($backTo);
+}
+
+// One renewal at a time. A renewal still waiting for accounts, or one already released
+// that starts after this certificate, means this vehicle is already renewed. Creating
+// another made a duplicate draft - easy to do when the page seemed to have failed.
+$already = q("SELECT id, number, approval_status FROM certificates
+               WHERE vehicle_id = ? AND id <> ? AND status NOT IN ('voided')
+                 AND approval_status <> 'rejected'
+                 AND (approval_status = 'pending' OR issue_date > ?)
+               ORDER BY id DESC LIMIT 1",
+    [(int)$old['vehicle_id'], $id, (string)$old['issue_date']])->fetch();
+if ($already) {
+    flash('This vehicle already has a renewal '
+        . ($already['approval_status'] === 'pending'
+            ? 'waiting for accounts (' . certificate_label($already) . ')'
+            : '(' . certificate_label($already) . ')')
+        . '. Nothing new was created.');
+    redirect('certificate_view.php?id=' . (int)$already['id']);
 }
 
 // The new cover picks up the day after the current cover ends, so nothing the
@@ -32,8 +65,8 @@ if (!$old) {
 //
 // A certificate that has ALREADY expired starts today instead; renewal_start_date()
 // holds that rule. Backdating would issue cover for days the vehicle did not have.
-$issue  = renewal_start_date((string)$old['expiry_date']);
-$expiry = date('Y-m-d', strtotime($issue . ' +1 year -1 day'));
+// renewal_dates() is also what the Renew dialog shows, so the two always agree.
+[$issue, $expiry] = renewal_dates((string)$old['expiry_date']);
 
 // Waiting its turn rather than taking over now. Only used for the message at the
 // end - the certificate itself needs no flag, because a future issue date is
@@ -105,10 +138,15 @@ audit('renew_certificate', 'certificate', $newId, [
 
 // Say when the new cover starts, not just when it ends. Somebody renewing a month
 // early needs to see that the month was kept rather than wonder where it went.
-$_SESSION['flash_ok'] = 'Renewal created for ' . ($s['vehicle']['reg_no'] ?? 'the vehicle')
+// flash(), which every page shows. It used to go into $_SESSION['flash_ok'], which only
+// the old payments page ever displayed, so this message was never seen.
+flash('Renewal created for ' . ($s['vehicle']['reg_no'] ?? 'the vehicle')
     . ($startsLater
         ? ', starting ' . fmt_date($issue) . ' when the current certificate ends'
         : ', starting today')
-    . ' and running to ' . fmt_date($expiry) . '. It is with accounts to approve.';
+    . ' and running to ' . fmt_date($expiry) . '. It is with accounts to approve.');
 
-redirect($_POST['back'] ?? 'index.php');
+// To the renewal just made, so it can be checked at once. It used to go back to
+// "certificate_view.php" with no id, which is the "not found" page - after the
+// renewal had already been saved. From the list, back to the list.
+redirect($fromList ? 'index.php' : 'certificate_view.php?id=' . $newId);

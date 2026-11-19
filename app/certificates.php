@@ -176,7 +176,8 @@ function render_sheet(array $cert, string $mode = 'screen'): string
     $logo_gold = $assets . '/gap_logo_gold.png';
     $kebs = $assets . '/kebs_mark.png';
     $sticker_bg = $assets . '/sticker_bg.png';
-    $microtext = str_repeat('GAPTECHSOLUTIONSLTD', 12);
+    // Words separated, so the band reads as the company name rather than one long string.
+    $microtext = str_repeat('GAPTECH SOLUTIONS LTD &middot; ', 12);
 
     ob_start();
     include APP_DIR . '/views/sheet.php';
@@ -204,7 +205,8 @@ function certificate_pdf(array $cert, bool $force = false): ?string
     // one that rendered as "Not found.", say - it was served for ever, because
     // the renderer underneath was never reached again. pdf_file_is_sane() looks
     // at what is actually on disk, and anything wrong is made again below.
-    if (!$force && !empty($cert['pdf_path']) && pdf_file_is_sane($pdfPath, 'landscape')) {
+    if (!$force && !empty($cert['pdf_path']) && pdf_file_is_sane($pdfPath, 'landscape')
+        && pdf_matches_design($pdfPath, 'cert')) {     // redrawn after a design change
         return $pdfPath;
     }
  
@@ -473,6 +475,17 @@ function renewal_start_date(string $currentExpiry, ?string $today = null): strin
     }
 
     return $today;
+}
+
+/**
+ * The start and end of a one-year renewal of a certificate that expires on $currentExpiry.
+ * renew.php saves these and the Renew dialog shows them: one function, so the dialog can
+ * never promise dates the saved renewal does not have (it used to always say "today").
+ */
+function renewal_dates(string $currentExpiry): array
+{
+    $start = renewal_start_date($currentExpiry);
+    return [$start, date('Y-m-d', strtotime($start . ' +1 year -1 day'))];
 }
 
 
@@ -1246,7 +1259,7 @@ function create_certificate(array $in, array $user): array
                 'address' => $in['client_address'],
             ],
             'vehicle' => [
-                'reg_no' => strtoupper($in['reg_no']),
+                'reg_no' => plate_display((string)$in['reg_no']),
                 'make' => $in['make'],
                 'chassis_no' => $in['chassis_no'],
             ],

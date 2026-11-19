@@ -208,16 +208,21 @@ if (!function_exists('plate_key')) {
  * belongs and the machine does not: a government plate is "GK A123A", and a rule
  * clever enough to guess would turn it into "GKA 123A".
  */
-function plate_display(string $reg): string
-{
-    $clean = strtoupper(trim((string)preg_replace('/\s+/', ' ', $reg)));
+if (!function_exists('plate_display')) {
+    // Guarded: app/tracking.php carries an identical copy, because that module
+    // deliberately does not load this file. Whichever loads first wins.
+    function plate_display(string $reg): string
+    {
+        $clean = strtoupper(trim((string)preg_replace('/\s+/', ' ', $reg)));
 
-    if (strpos($clean, ' ') === false
-        && preg_match('/^([A-Z]{3})([0-9]{3}[A-Z]?)$/', $clean, $m)) {
-        return $m[1] . ' ' . $m[2];
+        // Cars and lorries "KDK 259X"; motorbikes, four letters, "KMEA 123B".
+        if (strpos($clean, ' ') === false
+            && preg_match('/^(K[A-Z]{2}|KM[A-Z]{2})([0-9]{3}[A-Z]?)$/', $clean, $m)) {
+            return $m[1] . ' ' . $m[2];
+        }
+
+        return $clean;
     }
-
-    return $clean;
 }
 
 /**

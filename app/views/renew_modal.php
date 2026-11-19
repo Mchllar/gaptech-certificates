@@ -32,8 +32,8 @@
  * and the help text wrapped ragged. Everything it needs is now in this one file.
  */
 
-$gtRenewIssue  = date('Y-m-d');
-$gtRenewExpiry = date('Y-m-d', strtotime($gtRenewIssue . ' +1 year -1 day'));
+// The renewal's dates come from each Renew button (data-start / data-end), because
+// they depend on when THAT certificate's cover ends - not on today.
 
 // The dialog look and the open/close machinery. require_once, so a page with two
 // dialogs still only emits it once.
@@ -56,8 +56,8 @@ require_once __DIR__ . '/modal_base.php';
           <th>Customer</th><td id="renew-client">&mdash;</td></tr>
       <tr><th>Renewing</th><td id="renew-cert">&mdash;</td>
           <th>Valid for</th><td>12 months</td></tr>
-      <tr><th>New issue</th><td><?= e(fmt_date($gtRenewIssue)) ?></td>
-          <th>New expiry</th><td><?= e(fmt_date($gtRenewExpiry)) ?></td></tr>
+      <tr><th>New cover starts</th><td id="renew-start">&mdash;</td>
+          <th>New expiry</th><td id="renew-end">&mdash;</td></tr>
     </table>
 
     <label class="gt-f">Payment message
@@ -92,7 +92,9 @@ require_once __DIR__ . '/modal_base.php';
     client: document.getElementById('renew-client'),
     cert:   document.getElementById('renew-cert'),
     note:   document.getElementById('renew-note'),
-    lpo:    document.getElementById('renew-lpo')
+    lpo:    document.getElementById('renew-lpo'),
+    start:  document.getElementById('renew-start'),
+    end:    document.getElementById('renew-end')
   };
 
   document.querySelectorAll('.renew-open').forEach(function (btn) {
@@ -104,6 +106,11 @@ require_once __DIR__ . '/modal_base.php';
       field.client.textContent = btn.dataset.client || '—';
       field.cert.textContent   = btn.dataset.cert
           ? 'certificate ' + btn.dataset.cert : '—';
+      // The dates the renewal will really have: the day after the current cover ends,
+      // or today if it has already lapsed. Worked out by renewal_dates() on the server,
+      // the same function renew.php saves with. This used to always say "today".
+      field.start.textContent  = btn.dataset.start || '—';
+      field.end.textContent    = btn.dataset.end || '—';
 
       // Cleared every time. A message left over from the last certificate you
       // looked at is the kind of thing nobody notices until it is on a receipt.

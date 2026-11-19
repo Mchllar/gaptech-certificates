@@ -17,12 +17,15 @@ if (!function_exists('gt_icon')) {
     function gt_icon(string $name): string
     {
         $paths = [
-            'dashboard' => '<rect x="3" y="3" width="7.5" height="7.5" rx="1.6"/>'
-                         . '<rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"/>'
-                         . '<rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"/>'
-                         . '<rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.6"/>',
+            // 'dashboard' => '<rect x="3" y="3" width="7.5" height="7.5" rx="1.6"/>'
+            //              . '<rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"/>'
+            //              . '<rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"/>'
+            //              . '<rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.6"/>',
 
-            'new'       => '<rect x="4" y="3" width="16" height="18" rx="2.2"/>'
+            'reports'   => '<path d="M3.5 20.5h17"/><path d="M5 16l4.5-5 3.5 3 6-7"/>'
+                         . '<path d="M15 7h4v4"/>',
+
+            'new'       =>'<rect x="4" y="3" width="16" height="18" rx="2.2"/>'
                          . '<path d="M12 8.5v7M8.5 12h7"/>',
 
             'certs'     => '<rect x="4" y="3" width="16" height="18" rx="2.2"/>'
@@ -111,10 +114,12 @@ $gtName = $gtUser ? (string)($gtUser['name'] ?? '') : (string)($gtClient['name']
       <?= gt_link('tracking_list.php', 'certs', 'Tracking Certificates') ?>
       <?= gt_link('verify.php', 'verify', 'Verify a SG. Certificate') ?>
       <?= gt_link('change_password.php', 'password', 'Change Password') ?>
+      <?= gt_link('reports.php', 'reports', 'Reports') ?>
 
     <?php elseif ($gtRole === 'client'): ?>
       <?= gt_link('client_portal.php', 'portal', 'My SG. Certificates') ?>
       <?= gt_link('verify.php', 'verify', 'Verify SG. Certificate') ?>
+      <?= gt_link('client_password.php', 'password', 'Change Password') ?>
 
     <?php elseif ($gtRole === 'management'): ?>
       <?php /*
@@ -123,11 +128,10 @@ $gtName = $gtUser ? (string)($gtUser['name'] ?? '') : (string)($gtClient['name']
         whether or not it is listed here, so this menu describes the account
         rather than merely suggesting it.
       */ ?>
-      <?= gt_link('dashboard.php', 'dashboard', 'Dashboard') ?>
+      <?= gt_link('reports.php', 'reports', 'Reports') ?>
       <?= gt_link('change_password.php', 'password', 'Change password') ?>
       
     <?php else: ?>
-      <!-- <?= gt_link('dashboard.php', 'dashboard', 'Dashboard') ?> -->
       <?= gt_link('index.php', 'certs', 'SG. Certificates') ?>
       <?= gt_link('tracking_list.php', 'certs', 'Tracking Installations') ?>
       <?= gt_link('verify.php', 'verify', 'Verify a SG. Certificate') ?>
@@ -135,6 +139,7 @@ $gtName = $gtUser ? (string)($gtUser['name'] ?? '') : (string)($gtClient['name']
       <?= gt_link('user_admin.php', 'clients', 'Staff Accounts') ?>
       <?= gt_link('change_password.php', 'password', 'Change Password') ?>
       <?= gt_link('settings.php', 'settings', 'SG. Settings') ?>
+      <?= gt_link('reports.php', 'reports', 'Reports') ?>
 
     <?php endif; ?>
   </nav>

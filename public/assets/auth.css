@@ -1,0 +1,189 @@
+/* ==========================================================================
+   Entry pages: welcome, staff sign-in, client sign-in, verify.
+   One card, one logo, one set of fields and buttons, so the front of the
+   system reads as one place. Every rule hangs off #wl, which outranks the
+   general "main form ..." rules in content.css and ui.css without !important.
+   ========================================================================== */
+
+/* The shared header slot points at a logo file that does not exist; these
+   pages draw their own. */
+body.plain .auth-brand { display: none; }
+body.plain main { max-width: 470px; }
+body.plain main:has(#wl.wl-wide) { max-width: 540px; }
+
+body.plain {
+  background:
+    radial-gradient(620px 380px at 8% -6%, rgba(140,198,63,.16), transparent 70%),
+    radial-gradient(680px 420px at 104% 108%, rgba(27,154,214,.16), transparent 70%),
+    #F3F6FA;
+  background-attachment: fixed;
+}
+body.plain footer { color: #8793A3; font-size: 12px; margin-top: 26px; text-align: center; }
+
+#wl {
+  --navy: #0D4F72; --navy-dark: #0A4260; --ink: #1C2430; --muted: #5C6775; --faint: #8793A3;
+  --line: #E4EBF2; --field: #D9E2EC; --green: #8CC63F; --blue: #1B9AD6;
+  color: var(--ink);
+}
+#wl *, #wl *::before, #wl *::after { box-sizing: border-box; }
+
+/* ---------------------------------------------------------------- card */
+#wl .wl-card {
+  background: #fff; border: 1px solid var(--line); border-radius: 18px;
+  box-shadow: 0 1px 2px rgba(16,40,64,.04), 0 18px 48px -18px rgba(16,40,64,.22);
+  padding: 30px 28px 24px; position: relative; overflow: hidden;
+}
+#wl .wl-card::before {               /* brand stripe, green into blue like the logo */
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 4px;
+  background: linear-gradient(90deg, var(--green), var(--blue));
+}
+#wl .wl-logo-link { display: block; width: fit-content; margin: 4px auto 22px; border-radius: 6px; }
+#wl .wl-logo { display: block; width: 250px; max-width: 100%; height: auto; }
+#wl .wl-logo-link:focus-visible { outline: 3px solid rgba(27,154,214,.45); outline-offset: 4px; }
+
+/* ---------------------------------------------------------------- heading */
+#wl .wl-head { text-align: center; margin-bottom: 22px; }
+#wl .wl-eyebrow {
+  display: inline-flex; align-items: center; gap: 6px; margin: 0 0 8px; padding: 4px 10px;
+  border-radius: 999px; background: #E6F0F7; color: var(--navy);
+  font-size: 11.5px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
+}
+#wl .wl-eyebrow svg { width: 14px; height: 14px; }
+#wl .wl-eyebrow.is-client { background: #EDF6E3; color: #4E7A1C; }
+#wl .wl-head h1 {
+  margin: 0; padding: 0; border: 0; background: none; text-align: center;
+  font-size: 22px; line-height: 1.25; font-weight: 700; letter-spacing: -.3px; color: var(--navy);
+}
+#wl .wl-head p:not(.wl-eyebrow) {
+  margin: 6px auto 0; max-width: 36ch; font-size: 14px; line-height: 1.5;
+  color: var(--muted); text-wrap: balance;
+}
+
+/* ---------------------------------------------------------------- messages */
+#wl .wl-alert {
+  display: flex; gap: 10px; align-items: flex-start; margin: 0 0 18px; padding: 11px 13px;
+  border-radius: 11px; font-size: 13.5px; line-height: 1.45; text-align: left;
+}
+#wl .wl-alert svg { width: 18px; height: 18px; flex: none; margin-top: 1px; }
+#wl .wl-alert.is-error { background: #FDEEEE; border: 1px solid #F3C4C6; color: #8D1C1C; }
+#wl .wl-alert.is-info  { background: #EEF6FC; border: 1px solid #CBE3F3; color: #1D4F6E; }
+
+/* ---------------------------------------------------------------- form */
+#wl .wl-form { margin: 0; padding: 0; background: none; border: 0; box-shadow: none; width: auto; }
+#wl .wl-field { display: block; margin: 0 0 16px; padding: 0;
+                font-size: 14px; font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--ink); }
+#wl .wl-field > span label { display: inline; margin: 0; padding: 0; font: inherit; letter-spacing: inherit;
+                             text-transform: none; color: inherit; }
+#wl .wl-field > span {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  font-size: 12.5px; font-weight: 700; letter-spacing: .3px; color: #3D4756;
+}
+#wl .wl-field > span a { font-weight: 600; font-size: 12.5px; letter-spacing: 0; color: var(--navy); text-decoration: none; }
+#wl .wl-field > span a:hover { text-decoration: underline; }
+#wl .wl-field input {
+  display: block; width: 100%; margin: 7px 0 0; padding: 13px 14px;
+  border: 1px solid var(--field); border-radius: 11px; background: #F8FBFD;
+  font: inherit; font-size: 16px; color: var(--ink); line-height: 1.3;
+  transition: border-color .15s, box-shadow .15s, background-color .15s;
+}
+#wl .wl-field input::placeholder { color: #A8B4C2; font-weight: 400; text-transform: none; letter-spacing: 0; }
+#wl .wl-field input:hover { border-color: #C3D0DD; }
+#wl .wl-field input:focus { outline: none; background: #fff; border-color: var(--blue);
+                            box-shadow: 0 0 0 3px rgba(27,154,214,.16); }
+#wl .wl-field input.is-plate { text-transform: uppercase; font-weight: 600; letter-spacing: .5px; }
+#wl .wl-field .pw-wrap { margin-top: 7px; }
+
+#wl .wl-caps { display: none; margin: 7px 0 0; font-size: 12.5px; font-weight: 600; color: #A86400; }
+#wl .wl-caps.is-on { display: block; }
+
+#wl .wl-or {
+  display: flex; align-items: center; gap: 12px; margin: -2px 0 14px;
+  font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #A8B4C2;
+}
+#wl .wl-or::before, #wl .wl-or::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--line); }
+
+/* ---------------------------------------------------------------- buttons */
+#wl .wl-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: 100%; margin: 6px 0 0; padding: 14px 18px; border: 0; border-radius: 11px;
+  background: var(--navy); color: #fff; font: inherit; font-size: 15.5px; font-weight: 700;
+  text-align: center; text-decoration: none; cursor: pointer; box-shadow: none;
+  transition: background-color .15s, box-shadow .15s, transform .1s;
+}
+#wl .wl-btn:hover { background: var(--navy-dark); box-shadow: 0 6px 16px -8px rgba(13,79,114,.6); }
+#wl .wl-btn:active { transform: translateY(1px); }
+#wl .wl-btn:focus-visible { outline: 3px solid rgba(27,154,214,.45); outline-offset: 2px; }
+#wl .wl-btn[disabled] { opacity: .75; cursor: progress; }
+#wl .wl-btn .wl-spin {
+  display: none; width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; animation: wl-spin .7s linear infinite;
+}
+#wl .wl-btn.is-busy .wl-spin { display: inline-block; }
+@keyframes wl-spin { to { transform: rotate(360deg); } }
+
+#wl .wl-btn.is-light { background: #fff; color: var(--navy); border: 1px solid var(--field); }
+#wl .wl-btn.is-light:hover { background: #F4F9FD; box-shadow: none; }
+
+/* ---------------------------------------------------------------- welcome choices */
+#wl .wl-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+#wl .wl-opt {
+  display: grid; grid-template-columns: 44px 1fr 20px; align-items: center; gap: 14px;
+  padding: 14px 14px 14px 12px; border: 1px solid var(--line); border-radius: 12px;
+  background: #fff; color: inherit; text-decoration: none;
+  transition: border-color .15s, box-shadow .15s, background-color .15s, transform .15s;
+}
+#wl .wl-opt:hover { border-color: #BFD3E3; background: #FAFCFE; transform: translateY(-1px);
+                    box-shadow: 0 6px 18px -10px rgba(13,79,114,.45); }
+#wl .wl-opt:focus-visible { outline: 3px solid rgba(27,154,214,.45); outline-offset: 2px; }
+#wl .wl-opt:active { transform: none; }
+#wl .wl-ico { width: 44px; height: 44px; border-radius: 11px; display: grid; place-items: center;
+              background: #E6F0F7; color: var(--navy); }
+#wl .wl-ico svg { width: 22px; height: 22px; }
+#wl .wl-opt.is-client .wl-ico { background: #EDF6E3; color: #4E7A1C; }
+#wl .wl-txt { min-width: 0; }
+#wl .wl-txt b { display: block; font-size: 15.5px; font-weight: 650; color: var(--ink); line-height: 1.3; }
+#wl .wl-txt span { display: block; margin-top: 2px; font-size: 13px; line-height: 1.4; color: var(--muted); }
+#wl .wl-go { display: block; width: 20px; height: 20px; color: #A6B4C3; transition: transform .15s, color .15s; }
+#wl .wl-go svg { display: block; width: 100%; height: 100%; }
+#wl .wl-opt:hover .wl-go { color: var(--navy); transform: translateX(3px); }
+
+/* ---------------------------------------------------------------- footer of the card */
+#wl .wl-foot {
+  margin: 20px 0 0; padding-top: 16px; border-top: 1px dashed var(--line);
+  display: flex; align-items: center; justify-content: center; gap: 6px 8px; flex-wrap: wrap;
+  font-size: 13.5px; line-height: 1.5; color: var(--muted); text-align: center;
+}
+#wl .wl-foot > svg { width: 18px; height: 18px; color: var(--blue); flex: none; }
+#wl .wl-foot a, #wl .wl-link {
+  color: var(--navy); font-weight: 600; text-decoration: none;
+  border-bottom: 1.5px solid rgba(13,79,114,.25); padding-bottom: 1px;
+}
+#wl .wl-foot a:hover, #wl .wl-link:hover { border-bottom-color: var(--navy); }
+#wl .wl-foot a:focus-visible, #wl .wl-link:focus-visible,
+#wl .wl-back:focus-visible { outline: 3px solid rgba(27,154,214,.45); outline-offset: 3px; border-radius: 3px; }
+#wl .wl-sep { color: #C3CDD8; }
+
+/* Below the card: the way back to the start. */
+#wl .wl-back {
+  display: flex; width: fit-content; align-items: center; gap: 6px; margin: 18px auto 0;
+  font-size: 13.5px; font-weight: 600; color: var(--muted); text-decoration: none;
+}
+#wl .wl-back svg { width: 16px; height: 16px; transition: transform .15s; }
+#wl .wl-back:hover { color: var(--navy); }
+#wl .wl-back:hover svg { transform: translateX(-3px); }
+
+/* ---------------------------------------------------------------- arrival */
+@media (prefers-reduced-motion: no-preference) {
+  #wl .wl-card { animation: wl-in .45s cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes wl-in { from { opacity: 0; transform: translateY(10px); } }
+}
+
+/* ---------------------------------------------------------------- phones */
+@media (max-width: 480px) {
+  #wl .wl-card { padding: 26px 18px 20px; border-radius: 16px; }
+  #wl .wl-logo { width: 210px; }
+  #wl .wl-logo-link { margin-bottom: 18px; }
+  #wl .wl-head h1 { font-size: 20px; }
+  #wl .wl-opt { grid-template-columns: 40px 1fr 18px; gap: 12px; padding: 13px 12px 13px 10px; }
+  #wl .wl-ico { width: 40px; height: 40px; }
+}

@@ -84,9 +84,9 @@ layout_top('Approvals');
     <table class="details">
       <tr><th>Vehicle</th><td><?= e($d['vehicle']['reg_no']) ?> (<?= e($d['vehicle']['make']) ?>)</td>
           <th>Chassis no.</th><td><?= e($d['vehicle']['chassis_no']) ?></td></tr>
-      <tr><th>Governor</th><td><?= e($d['device']['model']) ?></td>
-          <th>Serial no.</th><td><?= e($d['device']['serial_no']) ?></td></tr>
-      <tr><th>Type</th><td><?= e($cert['type']) ?></td>
+      <tr><th>Serial no.</th><td><?= e($d['device']['serial_no']) ?></td>
+          <th>Type</th><td><?= e($cert['type']) ?></td></tr>
+      <tr><th>Customer</th><td><?= e($d['client']['name']) ?></td>
           <th>Contact</th><td><?= e($d['client']['phone']) ?></td></tr>
       <tr><th>Issue date</th><td><?= e(fmt_date($cert['issue_date'])) ?></td>
           <th>Expires</th><td><?= e(fmt_date($cert['expiry_date'])) ?></td></tr>

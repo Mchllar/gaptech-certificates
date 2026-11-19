@@ -22,7 +22,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         set_setting($key, trim((string)($_POST[$key] ?? '')));
     }
     // Signature and stamp images, stored as data URIs so they travel with the PDF.
-    foreach (['signature_image' => 'signature', 'stamp_image' => 'stamp'] as $key => $input) {
+    foreach (['signature_image' => 'signature', 'stamp_image' => 'stamp',
+              'tracking_stamp_image' => 'tracking_stamp'] as $key => $input) {
         if (!empty($_FILES[$input]['tmp_name']) && is_uploaded_file($_FILES[$input]['tmp_name'])) {
             $type = mime_content_type($_FILES[$input]['tmp_name']);
             if (!in_array($type, ['image/png', 'image/jpeg'], true)) {
@@ -77,7 +78,8 @@ they were issued with.</p>
     <div class="img-settings">
       <?php foreach ([
           'signature' => ['Signature', setting('signature_image', '')],
-          'stamp'     => ['Company stamp', setting('stamp_image', '')],
+          'stamp'     => ['Stamp on speed governor certificates', setting('stamp_image', '')],
+          'tracking_stamp' => ['Stamp on tracking certificates', setting('tracking_stamp_image', '')],
       ] as $field => $info): ?>
         <div class="img-setting">
           <span class="img-label"><?= e($info[0]) ?></span>

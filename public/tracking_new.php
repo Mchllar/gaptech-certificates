@@ -88,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // The expiry is worked out, never typed: the chosen term, ending the day before
     // the anniversary. A one-year subscription bought on 23/09/2026 runs to 22/09/2027.
     $months = (int)$form['term_months'];
-    if (!in_array($months, [12, 24, 36, 48, 60], true)) {
+    if (!isset(TRACKING_TERMS[$months])) {
         $months = 12;
         $form['term_months'] = '12';
     }
@@ -127,10 +127,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($form['client_phone'] !== '' && !preg_match('/^[0-9+ ]+$/', $form['client_phone'])) {
         $errors[] = 'Contact may contain only digits, spaces and +.';
     }
-    // The first box is a tracker IMEI: 14 to 17 digits, which covers every unit
-    // GAPTECH fits as standard.
-    if ($form['imei'] !== '' && !preg_match('/^[0-9]{14,17}$/', $form['imei'])) {
-        $errors[] = 'An IMEI is 14 to 17 digits. Check it has been copied in full.';
+    // The first box is a tracker ID: 10 to 17 digits. Standard IMEIs are 15, but some
+    // trackers GAPTECH fits carry a 10-digit ID (e.g. 6170997567), which is valid too.
+    if ($form['imei'] !== '' && !preg_match('/^[0-9]{10,17}$/', $form['imei'])) {
+        $errors[] = 'A tracker IMEI is 10 to 17 digits. Check it has been copied in full.';
     }
 
     // The second unit is NOT always an IMEI of that shape - it may be a serial
@@ -607,7 +607,7 @@ accounts when you save, and takes its serial number once they confirm the paymen
 
     <?php trk_input('imei', 'Track IMEI no.', $form['imei'],
           ['inputmode' => 'numeric', 'maxlength' => 17,
-           'hint' => '15 digits, from the unit or the device list.']); ?>
+           'hint' => '10 to 17 digits (15 for a standard IMEI), from the unit or the device list.']); ?>
     <?php $movedBlock(1, $form, $clash[1] ?? null); ?>
 
     <?php trk_input('imei_2', 'Second unit no. (optional)', $form['imei_2'],
@@ -625,8 +625,7 @@ accounts when you save, and takes its serial number once they confirm the paymen
     <label class="field">Subscription period <span class="req">*</span>
       <span class="field-row">
         <select name="term_months" id="term">
-          <?php foreach ([12 => '1 year', 24 => '2 years', 36 => '3 years',
-                          48 => '4 years', 60 => '5 years'] as $m => $text): ?>
+          <?php foreach (TRACKING_TERMS as $m => $text): ?>
             <option value="<?= $m ?>" <?= (int)$form['term_months'] === $m ? 'selected' : '' ?>>
               <?= e($text) ?></option>
           <?php endforeach; ?>

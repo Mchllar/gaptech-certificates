@@ -173,6 +173,8 @@ function management_pages(): array
 {
     return [
         'dashboard.php',
+        'reports.php',
+        'report_pdf.php',
         'logout.php',
     ];
 }
@@ -187,7 +189,7 @@ function management_pages(): array
  */
 function staff_home(array $user): string
 {
-    return (string)($user['role'] ?? '') === 'management' ? 'dashboard.php' : 'index.php';
+    return (string)($user['role'] ?? '') === 'management' ? 'reports.php' : 'index.php';
 }
 
 /**
@@ -265,7 +267,17 @@ function current_client(): ?array
     if (empty($_SESSION['client_id'])) {
         return null;
     }
-    return q('SELECT * FROM clients WHERE id = ?', [$_SESSION['client_id']])->fetch() ?: null;
+    $client = q('SELECT * FROM clients WHERE id = ?', [$_SESSION['client_id']])->fetch() ?: null;
+
+    // Signed in with a password staff set: nothing else opens until they choose their own.
+    // Checked here rather than in each page, so a download link cannot skip it.
+    if ($client && !empty($client['must_change_password'])) {
+        $here = basename((string)($_SERVER['SCRIPT_NAME'] ?? ''));
+        if (!in_array($here, ['client_password.php', 'logout.php'], true) && !headers_sent()) {
+            redirect('client_password.php');
+        }
+    }
+    return $client;
 }
 
 function require_client(): array

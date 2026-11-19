@@ -17,6 +17,7 @@
 require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/certificates.php';
 require APP_DIR . '/views/layout.php';
+require APP_DIR . '/views/entry.php';
 
 $vfyBack = '';
 if (function_exists('current_user') && ($vfyWho = current_user())) {
@@ -104,15 +105,21 @@ if ($code !== '' || $number !== '' || $reg !== '') {
             [(int)$number])->fetch() ?: null;
 
     } else {
+         // The certificate IN FORCE today first; only if there is none, one still to start.
+         // Newest-number-first used to return a renewal that begins next year, so an
+         // officer checking a properly covered vehicle was told "Not found".
          $cert = q("SELECT c.* FROM certificates c JOIN vehicles v ON v.id = c.vehicle_id
             WHERE regexp_replace(upper(v.reg_no), '[^A-Z0-9]', '', 'g') = ?
             AND c.status = 'issued'" . $onlyOkC . "
-            ORDER BY c.number DESC LIMIT 1", [plate_key($reg)])->fetch() ?: null;
+            ORDER BY (c.issue_date <= current_date) DESC, c.issue_date DESC, c.number DESC
+            LIMIT 1", [plate_key($reg)])->fetch() ?: null;
     }
 }
 
 $status = '';
 $d = [];
+$inForceNow = null;    // for a renewal still to start: the certificate covering the vehicle today
+$renewedBy  = null;    // for the certificate in force: a renewal already waiting to take over
 if ($cert) {
     audit('verify', 'certificate', (int)$cert['id']);
     $d = json_decode((string)$cert['snapshot'], true) ?: [];
@@ -139,6 +146,12 @@ if ($blocked) {
             $tone = 'good';
             $headline = 'Valid';
             $detail = 'This certificate is current and in force.';
+            // Already renewed? Say so: it answers "what happens when this runs out".
+            $renewedBy = q("SELECT * FROM certificates
+                             WHERE vehicle_id = ? AND id <> ? AND approval_status = 'approved'
+                               AND status = 'issued' AND issue_date > current_date
+                             ORDER BY issue_date LIMIT 1",
+                [(int)$cert['vehicle_id'], (int)$cert['id']])->fetch() ?: null;
             break;
         case 'Expired':
             $tone = 'warn';
@@ -165,7 +178,16 @@ if ($blocked) {
                     . ((string)$cert['rejection_reason'] ?: 'no reason recorded') . '.';
             break;
         case 'Scheduled':
-          break;
+            // A renewal, paid and released, waiting for the current cover to run out.
+            // Not "Not found" - it is genuine - but not in force yet either, and the
+            // officer needs to know which certificate covers the vehicle TODAY.
+            $tone = 'info';
+            $headline = 'Starts ' . fmt_date((string)$cert['issue_date']);
+            $detail = 'This is a genuine renewal, but its cover does not start until '
+                    . fmt_date((string)$cert['issue_date']) . ', the day after the current certificate ends.'
+                    . ' It does not cover the vehicle before then.';
+            $inForceNow = certificate_current_for_plate((string)($d['vehicle']['reg_no'] ?? ''));
+            break;
         default:
             $tone = 'bad';
             $headline = 'Voided';
@@ -173,169 +195,180 @@ if ($blocked) {
     }
 }
 
-layout_top('', 'public');
+layout_top('Verify a certificate', 'public');
+echo entry_styles();
 ?>
 <style>
-  /* -------- verification page, phone first -------------------------------- */
-  .vfy { max-width: 560px; margin: 0 auto; padding: 0 4px 40px; }
-  .vfy * { box-sizing: border-box; }
+  /* Verdict and details: verify-only, inside the shared entry card. */
+  body.has-sidebar #wl { max-width: 560px; margin: 0 auto; }
 
-  .vfy-title { margin: 0 0 6px; font-size: 22px; font-weight: 700;
-              letter-spacing: -.4px; color: #1C2430; line-height: 1.25; }
-  .vfy-sub { margin: 0 0 20px; font-size: 14px; color: #7A8696; line-height: 1.5; }
+  #wl .vfy-verdict { border-radius: 14px; padding: 20px 18px; margin: 0 0 6px; color: #fff; }
+  #wl .vfy-good { background: linear-gradient(135deg, #3FA34D, #1E7B34); }
+  #wl .vfy-warn { background: linear-gradient(135deg, #D8902A, #A86400); }
+  #wl .vfy-bad  { background: linear-gradient(135deg, #D8343C, #A50F16); }
+  /* Genuine but not started yet: blue, neither the green of "valid" nor the red of "not found". */
+  #wl .vfy-info { background: linear-gradient(135deg, #2A86C8, #0D4F72); }
 
-  /* ---- the verdict ---- */
-  .vfy-verdict { border-radius: 16px; padding: 22px 20px; margin: 0 0 16px; color: #fff;
-                box-shadow: 0 6px 20px rgba(13,79,114,.14); }
-  .vfy-good { background: linear-gradient(135deg, #3FA34D, #1E7B34); }
-  .vfy-warn { background: linear-gradient(135deg, #D8902A, #A86400); }
-  .vfy-bad  { background: linear-gradient(135deg, #D8343C, #A50F16); }
+  /* The other half of a renewal, under the verdict. */
+  #wl .vfy-link-note { display: flex; gap: 10px; align-items: flex-start; margin: 10px 0 0; padding: 12px 14px;
+                       border-radius: 12px; font-size: 14px; line-height: 1.5; color: #1C2430; }
+  #wl .vfy-link-note svg { width: 18px; height: 18px; flex: none; margin-top: 2px; }
+  #wl .vfy-link-note a { display: inline-block; margin-left: 2px; font-weight: 700; color: #0D4F72;
+                         text-decoration: none; border-bottom: 1.5px solid rgba(13,79,114,.3); }
+  #wl .vfy-link-note a:hover { border-bottom-color: #0D4F72; }
+  #wl .vfy-link-note.is-good { background: #EAF6EC; border: 1px solid #C7E6CD; } #wl .vfy-link-note.is-good svg { color: #1E7B34; }
+  #wl .vfy-link-note.is-info { background: #EAF3FA; border: 1px solid #C9E0F1; } #wl .vfy-link-note.is-info svg { color: #0D4F72; }
+  #wl .vfy-link-note.is-warn { background: #FFF6E5; border: 1px solid #F2DDB0; } #wl .vfy-link-note.is-warn svg { color: #A86400; }
+  #wl .vfy-verdict-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+  #wl .vfy-verdict-ico { width: 34px; height: 34px; border-radius: 50%; background: rgba(255,255,255,.2);
+                         display: grid; place-items: center; flex: none; }
+  #wl .vfy-verdict-ico svg { width: 20px; height: 20px; }
+  #wl .vfy-verdict h2::after { content: none; display: none; }
+  #wl .vfy-verdict h2 { display: block; padding: 0; border: 0; background: none; margin: 0 0 6px; font-size: 28px; font-weight: 800; letter-spacing: -.5px;
+                        line-height: 1.1; color: #fff; }
+  #wl .vfy-verdict p { margin: 0; font-size: 14.5px; line-height: 1.5; color: rgba(255,255,255,.94); }
+  #wl .vfy-plate { display: inline-block; padding: 5px 12px; background: rgba(255,255,255,.2);
+                   border-radius: 8px; font-size: 16px; font-weight: 700; letter-spacing: 1px; }
 
-  .vfy-verdict h2 { margin: 0 0 6px; font-size: 30px; font-weight: 800;
-                    letter-spacing: -.5px; line-height: 1.1; color: #fff; }
-  .vfy-verdict p { margin: 0; font-size: 14.5px; line-height: 1.5; color: rgba(255,255,255,.94); }
-  .vfy-plate { display: inline-block; margin: 0 0 10px; padding: 5px 12px;
-              background: rgba(255,255,255,.18); border-radius: 8px;
-              font-size: 17px; font-weight: 700; letter-spacing: 1px; }
-
-  /* ---- the details ---- */
-  .vfy-card { background: #fff; border: 1px solid #E4EBF2; border-radius: 16px;
-              padding: 6px 18px; margin: 0 0 16px;
-              box-shadow: 0 1px 2px rgba(13,79,114,.04), 0 6px 20px rgba(13,79,114,.06); }
-  .vfy-row { display: flex; flex-wrap: wrap; gap: 2px 14px;
-            padding: 13px 0; border-top: 1px solid #EDF2F7; }
-  .vfy-row:first-child { border-top: 0; }
-  .vfy-key { flex: 0 0 100%; font-size: 10.5px; font-weight: 700; letter-spacing: .7px;
-            text-transform: uppercase; color: #8793A3; }
-  .vfy-val { flex: 1 1 100%; font-size: 16px; color: #1C2430; font-weight: 600;
-            word-break: break-word; font-variant-numeric: tabular-nums; }
-
-  /* ---- the form ---- */
-  .vfy-form { background: #fff; border: 1px solid #E4EBF2; border-radius: 16px;
-              padding: 20px 18px; margin: 0 0 16px;
-              box-shadow: 0 1px 2px rgba(13,79,114,.04), 0 6px 20px rgba(13,79,114,.06); }
-  .vfy-form label { display: block; margin: 0 0 14px; font-size: 10.5px; font-weight: 700;
-                    letter-spacing: .7px; text-transform: uppercase; color: #8793A3; }
-  .vfy-form input { display: block; width: 100%; margin-top: 7px; padding: 14px 15px;
-                    border: 1px solid #D9E2EC; border-radius: 11px; background: #F8FBFD;
-                    font: inherit; font-size: 17px; font-weight: 600; color: #1C2430;
-                    text-transform: uppercase; letter-spacing: .5px; }
-  .vfy-form input::placeholder { font-weight: 400; text-transform: none;
-                                letter-spacing: 0; color: #A8B4C2; }
-  .vfy-form input:focus { outline: none; background: #fff; border-color: #1890D0;
-                          box-shadow: 0 0 0 3px rgba(24,144,208,.16); }
-
-  .vfy-or { display: flex; align-items: center; gap: 12px; margin: 4px 0 14px;
-            font-size: 11px; font-weight: 700; letter-spacing: 1px;
-            text-transform: uppercase; color: #A8B4C2; }
-  .vfy-or::before, .vfy-or::after { content: ""; flex: 1 1 auto; height: 1px; background: #E4EBF2; }
-
-  .vfy-btn { display: block; width: 100%; padding: 15px; border: 0; border-radius: 11px;
-            background: #0D4F72; color: #fff; font: inherit; font-size: 16px; font-weight: 700;
-            text-align: center; text-decoration: none; cursor: pointer; }
-  .vfy-btn:hover { background: #0A4260; }
-  .vfy-btn-light { background: #fff; color: #0D4F72; border: 1px solid #D9E2EC; }
-  .vfy-btn-light:hover { background: #F4F9FD; }
-
-  .vfy-note { margin: 16px 2px 0; font-size: 12.5px; color: #8793A3; line-height: 1.6; }
-  .vfy-stamp { margin: 10px 2px 0; font-size: 12px; color: #A8B4C2; }
-  .vfy-back { display: inline-block; margin: 22px 2px 0; font-size: 14px;
-              color: #0D4F72; text-decoration: none; }
-  .vfy-back:hover { text-decoration: underline; }
-
-  /* ---- a little wider once there is room ---- */
-  .vfy h1.vfy-title {
-    margin: 0 0 6px;
-    font-size: 22px; font-weight: 700; letter-spacing: -.4px;
-    line-height: 1.25; color: #0D4F72;
-    padding-left: 12px; border-left: 4px solid #8CC63F;
+  #wl .vfy-rows { margin: 0 0 18px; }
+  #wl .vfy-row { display: flex; flex-wrap: wrap; gap: 2px 14px; padding: 12px 2px; border-top: 1px solid #EDF2F7; }
+  #wl .vfy-row:first-child { border-top: 0; }
+  #wl .vfy-key { flex: 0 0 100%; font-size: 11px; font-weight: 700; letter-spacing: .6px;
+                 text-transform: uppercase; color: #8793A3; }
+  #wl .vfy-val { flex: 1 1 100%; font-size: 15.5px; color: #1C2430; font-weight: 600;
+                 word-break: break-word; font-variant-numeric: tabular-nums; }
+  @media (min-width: 520px) {
+    #wl .vfy-key { flex: 0 0 150px; padding-top: 3px; }
+    #wl .vfy-val { flex: 1 1 0; }
   }
-  @media (min-width: 520px) { .vfy h1.vfy-title { font-size: 26px; } }
+
+  #wl .vfy-note { margin: 16px 0 0; font-size: 12.5px; color: #8793A3; line-height: 1.6; text-align: center; }
+  #wl .vfy-note strong { color: #5C6775; }
 </style>
 
-<div class="vfy">
+<div id="wl" class="wl-wide">
+  <section class="wl-card" aria-labelledby="wl-title">
+    <?php if (!$staff && !current_client()): ?><?= entry_logo() ?><?php endif; ?>
 
 <?php if (!$searched): ?>
 
-  <h1 class="vfy-title" >Verify a Speed Governor Certificate</h1>
-  <p class="vfy-sub">Scan the QR code on the certificate, or enter <strong>either</strong> of the
-    details printed on it.</p>
+    <header class="wl-head">
+      <p class="wl-eyebrow"><?= entry_icon('shield') ?>Verification</p>
+      <h1 id="wl-title">Verify a speed governor certificate</h1>
+      <p>Scan the QR code on the certificate, or enter <strong>either</strong> of the details printed on it.</p>
+    </header>
 
-  <form method="get" class="vfy-form">
-    <label>Certificate number
-      <input name="number" value="<?= e($number) ?>" placeholder="e.g. 13621"
-             inputmode="numeric" autocomplete="off">
-    </label>
+    <form method="get" class="wl-form">
+      <label class="wl-field">
+        <span>Certificate number</span>
+        <input name="number" value="<?= e($number) ?>" placeholder="e.g. 13621"
+               inputmode="numeric" autocomplete="off" autofocus>
+      </label>
 
-    <p class="vfy-or">or</p>
+      <p class="wl-or">or</p>
 
-    <label>Vehicle registration
-      <input name="reg" value="<?= e($reg) ?>" placeholder="e.g. KDK 017N"
-             autocapitalize="characters" autocomplete="off">
-    </label>
+      <label class="wl-field">
+        <span>Vehicle registration</span>
+        <input class="is-plate" name="reg" value="<?= e($reg) ?>" placeholder="e.g. KDK 017N"
+               autocapitalize="characters" autocomplete="off" spellcheck="false">
+      </label>
 
-    <button type="submit" class="vfy-btn">Verify</button>
-  </form>
+      <button type="submit" class="wl-btn" data-busy="Checking…" data-idle="Verify certificate">
+        <span class="wl-spin" aria-hidden="true"></span><span class="wl-btn-label">Verify certificate</span>
+      </button>
+    </form>
 
-  <p class="vfy-note">Searching by registration shows that vehicle's current certificate.</p>
+    <p class="wl-foot"><span>Searching by registration shows that vehicle's current certificate.</span></p>
 
-  <?php if ($staff): ?>
-    <p class="vfy-note"><strong>Staff view.</strong> You are signed in, so drafts and
-      rejected certificates are shown. The public sees &ldquo;Not found&rdquo; for these.</p>
-  <?php endif; ?>
+    <?php if ($staff): ?>
+      <p class="vfy-note"><strong>Staff view.</strong> You are signed in, so drafts and rejected
+        certificates are shown. The public sees &ldquo;Not found&rdquo; for these.</p>
+    <?php endif; ?>
 
 <?php else: ?>
 
-  <div class="vfy-verdict vfy-<?= e($tone) ?>">
-    <?php if ($cert): ?>
-      <span class="vfy-plate"><?= e($d['vehicle']['reg_no'] ?? '') ?></span>
-    <?php endif; ?>
-    <h2><?= e($headline) ?></h2>
-    <p><?= e($detail) ?></p>
-  </div>
-
-  <?php if ($cert): ?>
-    <div class="vfy-card">
-      <div class="vfy-row"><span class="vfy-key">Certificate no.</span>
-        <span class="vfy-val"><?= e((string)$cert['number']) ?></span></div>
-
-      <div class="vfy-row"><span class="vfy-key">Vehicle</span>
-        <span class="vfy-val"><?= e($d['vehicle']['reg_no'] ?? '') ?><?=
-          isset($d['vehicle']['make']) ? ' (' . e($d['vehicle']['make']) . ')' : '' ?></span></div>
-
-      <div class="vfy-row"><span class="vfy-key">Chassis no.</span>
-        <span class="vfy-val"><?= mask_chassis((string)($d['vehicle']['chassis_no'] ?? '')) ?></span></div>
-
-      <div class="vfy-row"><span class="vfy-key">Governor serial no.</span>
-        <span class="vfy-val"><?= e($d['device']['serial_no'] ?? '') ?></span></div>
-
-      <div class="vfy-row"><span class="vfy-key">Set speed</span>
-        <span class="vfy-val"><?= e((string)($d['device']['set_speed_kmh'] ?? '')) ?> km/h</span></div>
-
-      <div class="vfy-row"><span class="vfy-key">Issued</span>
-        <span class="vfy-val"><?= e(fmt_date($cert['issue_date'])) ?></span></div>
-
-      <div class="vfy-row"><span class="vfy-key">Expires</span>
-        <span class="vfy-val"><?= e(fmt_date($cert['expiry_date'])) ?></span></div>
-
-      <div class="vfy-row"><span class="vfy-key">Issued by</span>
-        <span class="vfy-val"><?= e($d['company']['name'] ?? setting('company_name')) ?><?php
-          if (!empty($d['company']['dealer_no'])): ?><br>Dealer <?= e($d['company']['dealer_no']) ?><?php
-          endif; ?></span></div>
+    <div class="vfy-verdict vfy-<?= e($tone) ?>" role="status">
+      <div class="vfy-verdict-top">
+        <?php if ($cert): ?><span class="vfy-plate"><?= e($d['vehicle']['reg_no'] ?? '') ?></span><?php else: ?><span></span><?php endif; ?>
+        <span class="vfy-verdict-ico"><?= entry_icon($tone === 'good' ? 'shield' : (in_array($tone, ['warn', 'info'], true) ? 'info' : 'error')) ?></span>
+      </div>
+      <h2 id="wl-title"><?= e($headline) ?></h2>
+      <p><?= e($detail) ?></p>
     </div>
-  <?php endif; ?>
 
-  <a class="vfy-btn vfy-btn-light" href="verify.php">Check another</a>
+    <?php
+      // The other half of a renewal, so nobody has to work it out. Links use the
+      // certificate's own code, the same as its QR, so they open without a search.
+      $vfyLink = static fn(array $c): string => 'verify.php?c=' . (int)$c['number'] . '-' . rawurlencode((string)$c['verify_token']);
+    ?>
+    <?php if ($inForceNow): ?>
+      <div class="vfy-link-note is-good">
+        <?= entry_icon('shield') ?>
+        <span><b>Covered today by certificate No. <?= e((string)$inForceNow['number']) ?></b>, valid until
+          <?= e(fmt_date((string)$inForceNow['expiry_date'])) ?>.
+          <a href="<?= e($vfyLink($inForceNow)) ?>">Check No. <?= e((string)$inForceNow['number']) ?></a></span>
+      </div>
+    <?php elseif ($status === 'Scheduled'): ?>
+      <div class="vfy-link-note is-warn">
+        <?= entry_icon('info') ?>
+        <span><b>No certificate covers this vehicle today.</b> Its cover starts on
+          <?= e(fmt_date((string)$cert['issue_date'])) ?>.</span>
+      </div>
+    <?php endif; ?>
+    <?php if ($renewedBy): ?>
+      <div class="vfy-link-note is-info">
+        <?= entry_icon('info') ?>
+        <span><b>Already renewed.</b> Certificate No. <?= e((string)$renewedBy['number']) ?> takes over on
+          <?= e(fmt_date((string)$renewedBy['issue_date'])) ?> and runs to <?= e(fmt_date((string)$renewedBy['expiry_date'])) ?>.
+          <a href="<?= e($vfyLink($renewedBy)) ?>">Check No. <?= e((string)$renewedBy['number']) ?></a></span>
+      </div>
+    <?php endif; ?>
 
-  <?php if ($cert): ?>
-    <p class="vfy-note">This page is the authoritative record. A printed or forwarded copy is valid
-      only if it matches what is shown here. The chassis number is shown in part only.</p>
-    <p class="vfy-stamp">Checked <?= e(date('j M Y, H:i')) ?></p>
-  <?php endif; ?>
+    <?php if ($cert): ?>
+      <div class="vfy-rows">
+        <div class="vfy-row"><span class="vfy-key">Certificate no.</span>
+          <span class="vfy-val"><?= e((string)$cert['number']) ?></span></div>
+
+        <div class="vfy-row"><span class="vfy-key">Vehicle</span>
+          <span class="vfy-val"><?= e($d['vehicle']['reg_no'] ?? '') ?><?=
+            isset($d['vehicle']['make']) ? ' (' . e($d['vehicle']['make']) . ')' : '' ?></span></div>
+
+        <div class="vfy-row"><span class="vfy-key">Chassis no.</span>
+          <span class="vfy-val"><?= mask_chassis((string)($d['vehicle']['chassis_no'] ?? '')) ?></span></div>
+
+        <div class="vfy-row"><span class="vfy-key">Governor serial no.</span>
+          <span class="vfy-val"><?= e($d['device']['serial_no'] ?? '') ?></span></div>
+
+        <div class="vfy-row"><span class="vfy-key">Set speed</span>
+          <span class="vfy-val"><?= e((string)($d['device']['set_speed_kmh'] ?? '')) ?> km/h</span></div>
+
+        <div class="vfy-row"><span class="vfy-key">Issued</span>
+          <span class="vfy-val"><?= e(fmt_date($cert['issue_date'])) ?></span></div>
+
+        <div class="vfy-row"><span class="vfy-key">Expires</span>
+          <span class="vfy-val"><?= e(fmt_date($cert['expiry_date'])) ?></span></div>
+
+        <div class="vfy-row"><span class="vfy-key">Issued by</span>
+          <span class="vfy-val"><?= e($d['company']['name'] ?? setting('company_name')) ?><?php
+            if (!empty($d['company']['dealer_no'])): ?><br>Dealer <?= e($d['company']['dealer_no']) ?><?php
+            endif; ?></span></div>
+      </div>
+    <?php else: ?>
+      <div style="height:12px"></div>
+    <?php endif; ?>
+
+    <a class="wl-btn is-light" href="verify.php">Check another certificate</a>
+
+    <?php if ($cert): ?>
+      <p class="vfy-note">This page is the authoritative record. A printed or forwarded copy is valid
+        only if it matches what is shown here. The chassis number is shown in part only.<br>
+        Checked <?= e(date('j M Y, H:i')) ?></p>
+    <?php endif; ?>
 
 <?php endif; ?>
-<?php if ($vfyBack !== ''): ?>
-  <a class="vfy-back" href="<?= e($vfyBack) ?>">&larr; Back</a>
-<?php endif; ?>
+  </section>
+
+  <?= entry_back($vfyBack !== '' ? $vfyBack : 'welcome.php', $vfyBack !== '' ? 'Back' : 'Back to start') ?>
 </div>
+<?= entry_script() ?>
 <?php layout_bottom(); ?>

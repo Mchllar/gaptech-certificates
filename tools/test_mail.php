@@ -1,10 +1,10 @@
 <?php
 /**
- * Check the SMTP settings in app/config.php by sending one test message.
+ * Check the SMTP settings in .env by sending one test message.
  *
  *   php tools/test_mail.php you@example.com
  *
- * Put this in the project's tools/ folder. Delete it once mail is working.
+ * Sends one message and reports exactly where it fails if it does.
  */
 require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/mailer.php';
@@ -19,7 +19,7 @@ if ($to === '') {
 }
 
 $s = $config['smtp'] ?? [];
-echo "Settings in app/config.php\n";
+echo "Settings from .env\n";
 printf("  host      : %s\n", $s['host'] ?: '(empty - nothing will send)');
 printf("  port      : %s\n", $s['port'] ?? '');
 printf("  security  : %s\n", $s['security'] ?? '');
@@ -55,7 +55,10 @@ if (mail_send($to, 'Certificate system test message', $body, $error)) {
 } else {
     echo "FAILED\n  {$error}\n\n";
     echo "Common causes:\n";
-    echo "  535 / authentication failed : wrong username or password. For Gmail and Google\n";
+    echo "  5.7.139 / SmtpClientAuthentication is disabled : Office 365 blocks app sign-in for this\n";
+    echo "      mailbox. Admin center > Users > the mailbox > Mail > Manage email apps > tick Authenticated SMTP.\n";
+    echo "  535 / authentication failed : wrong SMTP_USERNAME or SMTP_PASSWORD in .env. With multi-factor\n";
+    echo "      sign-in on the account an app password may be needed. For Gmail and Google\n";
     echo "      Workspace you must use an App Password, not the normal account password.\n";
     echo "  5.7.x / not allowed to send as : the 'from' address must match the account signing in.\n";
     echo "  TLS errors : try port 465 with security 'ssl', or 587 with 'tls'.\n";

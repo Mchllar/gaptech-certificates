@@ -83,8 +83,13 @@ function signature($x, $y, $w, $h)
 {
     global $d;
     if (!empty($d['signatory']['signature_image'])) {
+        // object-fit keeps the signature's own proportions: forced into the wide, short box
+        // it was squashed flat. The box is also allowed twice as tall, reaching up over the
+        // line the way a pen signature does, so a tall signature is not shrunk to nothing.
+        $tall = round($h * 2);
         return '<img class="img" src="' . e($d['signatory']['signature_image']) . '" style="left:' . $x
-            . 'px; top:' . $y . 'px; width:' . $w . 'px; height:' . $h . 'px;">';
+            . 'px; top:' . round($y - ($tall - $h) * 0.6) . 'px; width:' . $w . 'px; height:' . $tall
+            . 'px; object-fit:contain; object-position:center;">';
     }
     return '<div class="sigph" style="left:' . $x . 'px; top:' . $y . 'px; width:' . $w . 'px; height:'
         . $h . 'px; line-height:' . $h . 'px;">[signature]</div>';

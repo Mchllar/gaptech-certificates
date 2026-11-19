@@ -417,8 +417,7 @@ layout_back('tracking_list.php', 'Back to Tracking Installations');
     </table>
     <label class="trk-f">Subscription period
       <select name="term_months" id="renew-term">
-        <?php foreach ([12 => '1 year', 24 => '2 years', 36 => '3 years',
-                        48 => '4 years', 60 => '5 years', 72 => '6 years'] as $m => $text): ?>
+        <?php foreach (TRACKING_TERMS as $m => $text): ?>
           <option value="<?= $m ?>"
                   data-expiry="<?= e(fmt_date(default_expiry(date('Y-m-d'), $m))) ?>">
             <?= e($text) ?></option>

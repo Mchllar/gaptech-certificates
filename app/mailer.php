@@ -85,6 +85,8 @@ function mail_send(string $to, string $subject, string $body, ?string &$error = 
         . 'To: <' . $to . ">\r\n"
         . 'Subject: ' . $subject . "\r\n"
         . 'Date: ' . date('r') . "\r\n"
+        // Without a Message-ID many mail systems score the message as likely spam.
+        . 'Message-ID: <' . bin2hex(random_bytes(12)) . '@' . (substr(strrchr((string)$s['from'], '@') ?: '@localhost', 1)) . ">\r\n"
         . "MIME-Version: 1.0\r\n"
         . "Content-Type: text/plain; charset=UTF-8\r\n\r\n";
     // a lone dot on a line would end the message early

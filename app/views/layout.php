@@ -31,6 +31,16 @@ function nav_item(string $href, string $icon, string $label): string
         . '<span>' . e($label) . '</span></a>';
 }
 
+/**
+ * assets/<file>?v=<last change>. Browsers keep stylesheets for a long time; the version
+ * changes whenever the file does, so an update reaches everyone without a hard refresh.
+ */
+function asset_url(string $file): string
+{
+    $v = @filemtime(ROOT_DIR . '/public/assets/' . $file) ?: 0;
+    return 'assets/' . $file . '?v=' . $v;
+}
+
 function layout_top(string $title, string $nav = 'staff'): void
 {
     $user = $nav === 'staff' ? current_user() : null;
@@ -41,11 +51,14 @@ function layout_top(string $title, string $nav = 'staff'): void
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <link rel="stylesheet" href="assets/style.css">
-        <link rel="stylesheet" href="assets/sidenav.css">
-        <link rel="stylesheet" href="assets/topbar.css">
-        <link rel="stylesheet" href="assets/content.css">
-        <link rel="stylesheet" href="assets/ui.css">
+        <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
+        <link rel="icon" type="image/png" sizes="256x256" href="assets/favicon.png">
+        <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+        <link rel="stylesheet" href="<?= asset_url('style.css') ?>">
+        <link rel="stylesheet" href="<?= asset_url('sidenav.css') ?>">
+        <link rel="stylesheet" href="<?= asset_url('topbar.css') ?>">
+        <link rel="stylesheet" href="<?= asset_url('content.css') ?>">
+        <link rel="stylesheet" href="<?= asset_url('ui.css') ?>">
       </head>
       <body class="<?= $signedIn ? 'has-sidebar' : 'plain' ?>">
       <?php require __DIR__ . '/sidenav.php'; ?>

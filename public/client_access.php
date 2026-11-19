@@ -13,7 +13,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $postedId = (int)($_POST['client_id'] ?? 0);
     $client   = q('SELECT * FROM clients WHERE id = ?', [$postedId])->fetch();
     $username = trim((string)($_POST['username'] ?? ''));
-    $email    = trim((string)($_POST['email'] ?? ''));
     $password = (string)($_POST['password'] ?? '');
 
     if (!$client) {
@@ -26,15 +25,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (strlen($password) < 8) {
         flash('The password must be at least 8 characters.');
     } else {
-        q('UPDATE clients SET username = ?, email = ?, password_hash = ? WHERE id = ?',
-            [$username, $email, password_hash($password, PASSWORD_DEFAULT), $client['id']]);
-        audit('set_client_access', 'client', (int)$client['id'], ['username' => $username]);
-        flash('Login saved for ' . $client['name'] . '. Give the password to them by phone or in person.');
+        // One-time: the client must replace it with their own at the next sign-in, so the
+        // password staff read out never stays in use. Client e-mails are not collected.
+        q('UPDATE clients SET username = ?, password_hash = ?, must_change_password = true WHERE id = ?',
+            [$username, password_hash($password, PASSWORD_DEFAULT), $client['id']]);
+        audit('set_client_access', 'client', (int)$client['id'], ['username' => $username, 'one_time' => true]);
+        flash('Login saved for ' . $client['name'] . '. Give them the username and password by phone or in person. '
+            . 'The password works once: they choose their own when they sign in.');
     }
     redirect('client_access.php?client_id=' . $postedId);
 }
 
-$clients = q('SELECT id, name, username, email, password_hash IS NOT NULL AS has_login
+$clients = q('SELECT id, name, username, must_change_password, password_hash IS NOT NULL AS has_login
               FROM clients ORDER BY name')->fetchAll();
 
 /** A readable suggestion, e.g. SASERE ENTERPRISES LTD -> sasere */
@@ -93,13 +95,13 @@ layout_back('index.php', 'Back to SG. Certificates');
 <!-- <h2 id="logins">Clients with credentials</h2> -->
 
 <table>
-  <tr><th>Index</th><th>Client</th><th>Username</th><th>E-mail</th><th></th></tr>
+  <tr><th>Index</th><th>Client</th><th>Username</th><th>Password</th><th></th></tr>
   <?php foreach ($loginRows as $i => $row): ?>
     <tr>
       <td><?= $loffset + $i + 1 ?></td>
       <td><?= e($row['name']) ?></td>
       <td><?= e($row['username']) ?></td>
-      <td><?= !empty($row['email']) ? e($row['email']) : '-' ?></td>
+      <td><?= !empty($row['must_change_password']) ? 'Waiting for first sign-in' : 'Set by client' ?></td>
       <td><button type="button" class="link-button creds-edit"
                   data-client-id="<?= (int)$row['id'] ?>">Change</button></td>
     </tr>
@@ -142,104 +144,183 @@ layout_back('index.php', 'Back to SG. Certificates');
   </span>
 </div>
 
+
 <div class="actions">
-  <button type="button" class="button" id="creds-open">Assign Credentials</button>
+  <button type="button" class="button" data-modal="#m-creds" id="creds-open">Assign Credentials</button>
+</div>
 </div>
 
-<div id="creds-modal" class="modal" <?= $openCreds ? '' : 'hidden' ?>>
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="creds-title">
-    <div class="modal-head">
-      <h3 id="creds-title" style="color: #ffffff; padding-top:15px;">Assign Credentials</h3>
-      <button type="button" class="modal-close" aria-label="Close">&times;</button>
+<?php require_once APP_DIR . '/views/dialog_styles.php'; ?>
+<?= nu_dialog_css('#m-creds') ?>
+<style>
+  #m-creds .gt-box { width: min(520px, calc(100vw - 32px)); }
+</style>
+
+<!-- ------------------------------------------------------------------ -->
+<!-- Client portal login. Same dialog as New staff account.             -->
+<!-- ------------------------------------------------------------------ -->
+<div class="gt-modal" id="m-creds" role="dialog" aria-modal="true" aria-labelledby="cr-title">
+  <form class="gt-box" method="post" id="crForm" autocomplete="off">
+    <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+
+    <div class="nu-head">
+      <div class="nu-badge" aria-hidden="true">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="8" cy="15" r="4"/><path d="M10.8 12.2L20 3M17 6l3 3M14.5 8.5l2 2"/>
+        </svg>
+      </div>
+      <div>
+        <h3 id="cr-title">Client portal login</h3>
+        <p>A username and one-time password for a client to download their certificates.</p>
+      </div>
+      <button type="button" class="nu-x gt-close" aria-label="Close">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
     </div>
-    <div class="modal-body"; style="padding-top:0.5%;">
-      <form method="post" class="pay-edit">
-        <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
 
-        <label>Client <span class="req">*</span>
-          <select name="client_id" required>
-            <option value="">Choose a client</option>
-            <?php foreach ($clients as $row): ?>
-              <option value="<?= (int)$row['id'] ?>"
-                      <?= $client && (int)$client['id'] === (int)$row['id'] ? 'selected' : '' ?>>
-                <?= e($row['name']) ?><?= $row['has_login'] ? ' (' . e($row['username']) . ')' : '' ?>
-              </option>
-            <?php endforeach; ?>
-          </select>
-        </label>
+    <div class="nu-body">
+      <div class="nu-section">Client</div>
 
-        <label>Username <span class="req">*</span>
-          <input name="username" required autocapitalize="none" value="<?= e($suggestedUser) ?>">
-        </label>
+      <div class="nu-field">
+        <label class="nu-label" for="crClient">Client <span class="req">*</span></label>
+        <select class="nu-input" id="crClient" name="client_id" required>
+          <option value="">Choose a client</option>
+          <?php foreach ($clients as $row):
+              $suggest = strtolower(preg_replace('/[^a-z0-9]+/i', '', (string)strtok((string)$row['name'], ' '))); ?>
+            <option value="<?= (int)$row['id'] ?>"
+                    data-username="<?= e((string)($row['username'] ?? '')) ?>" data-suggest="<?= e($suggest) ?>"
+                    <?= $client && (int)$client['id'] === (int)$row['id'] ? 'selected' : '' ?>>
+              <?= e($row['name']) ?><?= $row['has_login'] ? ' (' . e($row['username']) . ')' : '' ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
+        <p class="nu-help" id="crState" aria-live="polite"></p>
+      </div>
 
-        <label>E-mail (optional)
-          <input name="email" type="email" value="<?= e($client['email'] ?? '') ?>">
-        </label>
+      <div class="nu-section">Sign-in</div>
 
-        <label>Password <span class="req">*</span>
-          <input name="password" type="text" required minlength="8" value="<?= e($suggestedPass) ?>">
-        </label>
+      <div class="nu-field">
+        <label class="nu-label" for="crUser">Username <span class="req">*</span></label>
+        <input class="nu-input nu-mono" id="crUser" name="username" required autocapitalize="none"
+               spellcheck="false" autocomplete="off" value="<?= e($suggestedUser) ?>" placeholder="e.g. sasere">
+      </div>
 
-        <p style="color:red"; class="vfy-sub">Setting a password again replaces the old one. Give it to the client by phone or in person,</p>
-
-        <div class="pay-edit-actions">
-          <button type="submit">Save credentials</button>
+      <div class="nu-field">
+        <label class="nu-label" for="crPw">One-time password <span class="req">*</span></label>
+        <div class="nu-pw">
+          <input class="nu-input nu-mono" id="crPw" name="password" type="text" required minlength="8" maxlength="72"
+                 autocomplete="off" spellcheck="false" value="<?= e($suggestedPass) ?>">
+          <div class="nu-tools">
+            <button type="button" class="nu-tool" id="crGen" title="Generate a new password">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/></svg>
+              <span class="nu-tool-text">New</span>
+            </button>
+            <button type="button" class="nu-tool" id="crCopy" title="Copy the password">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="8.5" y="8.5" width="12" height="12" rx="2"/><path d="M15.5 8.5V5.5a2 2 0 0 0-2-2h-8a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/></svg>
+              <span class="nu-tool-text">Copy</span>
+            </button>
+          </div>
         </div>
-      </form>
+      </div>
+
+      <div class="nu-note">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v5.5M12 7.5v.01"/></svg>
+        <span>Give it to the client by phone or in person. It works for <b>one sign-in</b>: they then
+          choose their own. Setting it again replaces the old one, which is also how you help a client
+          who has forgotten theirs.</span>
+      </div>
     </div>
-  </div>
+
+    <div class="nu-foot">
+      <button type="button" class="button secondary gt-close">Cancel</button>
+      <button type="submit" class="button" id="crSubmit">Save login</button>
+    </div>
+  </form>
 </div>
-</div>
+
+<?php require_once APP_DIR . '/views/modal_base.php'; ?>
+
 <script>
-(
-  
-  function () {
-    var modal = document.getElementById('creds-modal');
-    var sel  = modal.querySelector('select[name="client_id"]');
-    var user = modal.querySelector('input[name="username"]');
-    var mail = modal.querySelector('input[name="email"]');
+(function () {
+  var dlg = document.getElementById('m-creds');
+  if (!dlg) { return; }
+  var form = document.getElementById('crForm');
+  var sel = document.getElementById('crClient'), user = document.getElementById('crUser');
+  var pw = document.getElementById('crPw'), state = document.getElementById('crState');
 
+  // Picking a client fills in their username (or a suggestion) and says what saving will do.
   function fillFromClient() {
-    var opt = sel ? sel.options[sel.selectedIndex] : null;
-    if (!opt || !opt.value) { return; }
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt || !opt.value) { state.textContent = ''; return; }
     user.value = opt.dataset.username || opt.dataset.suggest || '';
-    mail.value = opt.dataset.email || '';
+    state.textContent = opt.dataset.username
+      ? 'Already has a login. Saving gives them a new one-time password.'
+      : 'No login yet.';
   }
+  sel.addEventListener('change', fillFromClient);
 
-  if (!modal) { return; }
-
-  function show() {
-    modal.removeAttribute('hidden');
-    document.body.style.overflow = 'hidden';
-    var first = modal.querySelector('select, input');
-    if (first) { first.focus(); }
-  }
-  function shut() {
-    modal.setAttribute('hidden', '');
-    document.body.style.overflow = '';
-  }
-
-  var opener = document.getElementById('creds-open');
-  if (opener) { opener.addEventListener('click', show); }
-
-    if (sel) { sel.addEventListener('change', fillFromClient); }
-
-    document.querySelectorAll('.creds-edit').forEach(function (btn) {
+  // "Change" on a row opens the dialog with that client chosen.
+  document.querySelectorAll('.creds-edit').forEach(function (btn) {
     btn.addEventListener('click', function () {
-      if (sel) { sel.value = btn.dataset.clientId; fillFromClient(); }
-      show();
+      sel.value = btn.dataset.clientId;
+      fillFromClient();
+      dlg.classList.add('on');
+      setTimeout(function () { pw.focus(); pw.select(); }, 30);
     });
   });
-
-  modal.addEventListener('click', function (ev) {
-    if (ev.target === modal || ev.target.classList.contains('modal-close')) { shut(); }
-  });
-  document.addEventListener('keydown', function (ev) {
-    if (ev.key === 'Escape' && !modal.hasAttribute('hidden')) { shut(); }
+  document.getElementById('creds-open').addEventListener('click', function () {
+    setTimeout(function () { sel.focus(); }, 30);
   });
 
-  // The page can load with the dialog already open, so lock the scroll then too.
-  if (!modal.hasAttribute('hidden')) { document.body.style.overflow = 'hidden'; }
+  // A readable password, easy to read out over the phone: Word-Word-1234.
+  var WORDS = ['Lamu', 'Garissa', 'Kisumu', 'Nakuru', 'Embu', 'Meru', 'Nyeri', 'Kitui', 'Voi', 'Malindi',
+               'Eldoret', 'Kericho', 'Narok', 'Isiolo', 'Wajir', 'Kilifi', 'Thika', 'Machakos', 'Busia', 'Bomet'];
+  function rand(n) { var a = new Uint32Array(1); window.crypto.getRandomValues(a); return a[0] % n; }
+  document.getElementById('crGen').addEventListener('click', function () {
+    var a = WORDS[rand(WORDS.length)], b;
+    do { b = WORDS[rand(WORDS.length)]; } while (b === a);
+    pw.value = a + '-' + b + '-' + String(1000 + rand(9000));
+    pw.focus(); pw.select();
+  });
+
+  var copyBtn = document.getElementById('crCopy');
+  copyBtn.addEventListener('click', function () {
+    var text = copyBtn.querySelector('.nu-tool-text');
+    function done() {
+      copyBtn.classList.add('done'); text.textContent = 'Copied';
+      setTimeout(function () { copyBtn.classList.remove('done'); text.textContent = 'Copy'; }, 1600);
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(pw.value).then(done, function () { pw.select(); });
+    } else {
+      // Plain http on the office network has no clipboard API; the old way still works there.
+      pw.select();
+      try { if (document.execCommand('copy')) { done(); } } catch (e) {}
+    }
+  });
+
+  form.addEventListener('submit', function (e) {
+    if (!form.checkValidity()) {
+      e.preventDefault();
+      var bad = form.querySelector(':invalid');
+      if (bad) { bad.reportValidity(); bad.focus(); }
+      return;
+    }
+    var btn = document.getElementById('crSubmit');
+    btn.disabled = true; btn.textContent = 'Saving…';
+  });
+
+  fillFromClient();
+<?php if ($openCreds): ?>
+  dlg.classList.add('on');
+<?php endif; ?>
 })();
 </script>
 <?php layout_bottom(); ?>

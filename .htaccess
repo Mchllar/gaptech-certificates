@@ -1,0 +1,4 @@
+# The project root sits inside htdocs, so stop Apache serving private files.
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>

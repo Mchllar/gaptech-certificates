@@ -1,0 +1,2 @@
+# PHP code and settings: included by the app, never fetched by a browser.
+Require all denied

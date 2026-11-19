@@ -40,8 +40,13 @@ $have = fn(string $f): bool => $f !== '' && is_file($assetDir . '/' . basename($
  */
 $pick = function (string $base) use ($assetDir, $assets): string {
     foreach (['png', 'jpg', 'jpeg', 'webp', 'svg', 'gif', 'PNG', 'JPG', 'JPEG'] as $ext) {
-        if (is_file($assetDir . '/' . $base . '.' . $ext)) {
-            return $assets . '/' . $base . '.' . $ext;
+        $file = $assetDir . '/' . $base . '.' . $ext;
+        if (is_file($file)) {
+            // On screen, the file's date goes on the address: browsers keep images a long
+            // time, and without it an updated background (or logo) kept showing the old
+            // one. Not for the PDF, which reads the file straight from disk every time.
+            $v = (($GLOBALS['trackingMode'] ?? 'screen') === 'screen') ? '?v=' . filemtime($file) : '';
+            return $assets . '/' . $base . '.' . $ext . $v;
         }
     }
     return '';
@@ -60,9 +65,14 @@ $security  = $pick('security_bg');
 
 /** The signature and stamp are stored as a setting holding a path under assets/. */
 $sigFile   = (string)($d['company']['signature'] ?? setting('signature_image', ''));
-$stampFile = (string)($d['company']['stamp'] ?? setting('stamp_image', ''));
-$sigSrc    = $have($sigFile)   ? $assets . '/' . basename($sigFile)   : '';
-$stampSrc  = $have($stampFile) ? $assets . '/' . basename($stampFile) : '';
+$stampFile = (string)($d['company']['stamp'] ?? setting('tracking_stamp_image', ''));
+// Settings saves the images themselves (data:image/... URIs) so they travel inside the PDF.
+// This used to accept only a file name under assets/, so a saved signature or stamp never
+// appeared on a tracking certificate at all. Both forms work now.
+$imgSrc    = fn(string $f): string => preg_match('~^data:image/(png|jpe?g|gif|webp);base64,~i', $f) ? $f
+                                    : ($have($f) ? $assets . '/' . basename($f) : '');
+$sigSrc    = $imgSrc($sigFile);
+$stampSrc  = $imgSrc($stampFile);
 
 $status    = $d['cert']['status'] ?? 'Valid';
 
@@ -157,6 +167,20 @@ $rows = [
     width: calc(100% + 12mm); height: calc(100% + 12mm);
     z-index: 0; pointer-events: none;
   }
+  /* Company-name bands down the page, over the background pattern and under everything
+     else. Plain text in a plain font so it stays readable in print and in the PDF. */
+  .bands { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+  .band {
+    position: absolute; top: -2mm; height: 302mm;
+    writing-mode: vertical-rl;                 /* reads top to bottom, like the old image text */
+    font-family: Arial, "Liberation Sans", Helvetica, sans-serif;
+    font-size: 1.85mm; font-weight: 700; letter-spacing: 0.25mm; line-height: 1;
+    white-space: nowrap; overflow: hidden;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .band.g { color: rgba(140, 198, 63, 0.62); }   /* GAP green */
+  .band.b { color: rgba(24, 144, 208, 0.55); }   /* GAP blue */
+
   /* The GAP mark behind the table, as on the printed certificate. */
 
     /* The GAP mark behind the table. Every property it needs is here, so it
@@ -233,10 +257,15 @@ $rows = [
     overflow-wrap: anywhere;
   }
   /* The stamp goes over the foot of the table, where it is put by hand. */
-  .stamp { position: absolute; right: 2mm; bottom: 1.5mm; height: 17mm; }
+  /* Fills the empty right-hand part of the last two rows (Subscription and Expiry):
+     that space is about 82mm x 26.5mm, so the stamp is as tall as it can be within it
+     and centred across it. */
+  .stamp { position: absolute; right: 9mm; bottom: 0.8mm; height: 25mm; }
 
   /* ---------- signing ---------- */
-  .sign { margin-top: 9mm; display: flex; align-items: flex-end; gap: 6mm; }
+  /* 16mm, not 9: room for the taller signature to rise above its line without
+     touching the foot of the table. */
+  .sign { margin-top: 16mm; display: flex; align-items: flex-end; gap: 6mm; }
   .sign .cap {
     font-family: "Times New Roman", "Liberation Serif", serif;
     font-style: italic; font-weight: 700; font-size: 4.3mm; white-space: nowrap;
@@ -249,14 +278,17 @@ $rows = [
     position: absolute; left: 0; right: 0; bottom: 1.2mm;
     font-size: 4.6mm; font-weight: 700; letter-spacing: 0.2mm;
   }
+  /* Larger and allowed to rise well above the line, the way a pen signature does.
+     13mm made the signature (roughly square) a small mark that was hard to make out. */
   .sign .onrule img {
-    position: absolute; left: 50%; transform: translateX(-50%); bottom: 0.5mm; height: 13mm;
+    position: absolute; left: 50%; transform: translateX(-50%); bottom: -1.5mm; height: 24mm;
+    max-width: 100%; object-fit: contain;
   }
   .sign .name { flex: 1.15; }
   .sign .sigcell { flex: 0.95; }
 
   /* ---------- footer ---------- */
-  .foot { margin-top: auto; padding-bottom: 10mm; }
+  .foot { margin-top: auto; padding-top: 5mm; padding-bottom: 10mm; }
   .foot .alt {
     display: flex; align-items: center; gap: 4mm; justify-content: center;
   }
@@ -285,7 +317,21 @@ $rows = [
 
   @media screen {
     body { display: block; padding-bottom: 10mm; }
-    .screen-only { max-width: 210mm; margin: 6mm auto; text-align: right; }
+    .screen-only { max-width: 210mm; margin: 6mm auto; display: flex; justify-content: space-between;
+                   align-items: center; gap: 10px; font-family: "Segoe UI", system-ui, sans-serif; }
+    .screen-only .bar-btn {
+      display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 18px;
+      border-radius: 10px; font: 600 14.5px "Segoe UI", system-ui, sans-serif; text-decoration: none;
+      cursor: pointer; transition: background-color .15s, border-color .15s, box-shadow .15s;
+    }
+    .screen-only .bar-btn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2;
+                                stroke-linecap: round; stroke-linejoin: round; }
+    .screen-only .bar-back { background: #fff; color: #0D4F72; border: 1px solid #D9E2EC; }
+    .screen-only .bar-back:hover { background: #F2F7FB; border-color: #BFD3E3; }
+    .screen-only .bar-print { background: #0D4F72; color: #fff; border: 1px solid #0D4F72;
+                              box-shadow: 0 4px 12px -4px rgba(13,79,114,.5); }
+    .screen-only .bar-print:hover { background: #0A4260; }
+    .screen-only .bar-btn:focus-visible { outline: 3px solid rgba(24,144,208,.4); outline-offset: 2px; }
 
     /* The back directly under the front, both centred on the same axis.
        The terms page was drifting left because only .sheet had margin auto -
@@ -301,13 +347,29 @@ $rows = [
 
 <?php if (($trackingMode ?? 'screen') === 'screen'): ?>
 <div class="screen-only">
-  <a class="secondary" href="tracking_view.php?id=<?= (int)($_GET['id'] ?? 0) ?>">Back</a>
-  <button onclick="window.print()">Print this certificate</button>
+  <a class="bar-btn bar-back" href="tracking_view.php?id=<?= (int)($_GET['id'] ?? 0) ?>">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>Back to the certificate</a>
+  <button type="button" class="bar-btn bar-print" onclick="window.print()">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg>Print this certificate</button>
 </div>
 <?php endif; ?>
 
 <div class="sheet">
   <?php if ($security): ?><img class="security" src="<?= e($security) ?>" alt=""><?php endif; ?>
+  <?php
+    /* The company-name bands, as real page text rather than text inside the background
+       image. Chrome's PDF output drew image text in another font with the letters run
+       together, so it printed as an unreadable blur. Positions are the old ones from the
+       image: x in its 794-unit width, which spans the sheet plus 6mm bleed each side. */
+    $bands = [[36, 'g'], [43, 'g'], [168, 'b'], [175, 'b'], [300, 'g'], [307, 'g'],
+              [432, 'b'], [439, 'b'], [564, 'g'], [571, 'g'], [696, 'b'], [703, 'b']];
+    $bandText = str_repeat('GAPTECH SOLUTIONS LTD &middot; ', 26);
+  ?>
+  <div class="bands" aria-hidden="true">
+    <?php foreach ($bands as [$x, $tone]): ?>
+      <span class="band <?= $tone ?>" style="left: <?= round(-6 + $x * 222 / 794, 2) ?>mm"><?= $bandText ?></span>
+    <?php endforeach; ?>
+  </div>
   <?php if ($watermark): ?><div class="wm"><?= e($watermark) ?></div><?php endif; ?>
   <?php if ($houseMark): ?><img class="paper-mark" src="<?= e($houseMark) ?>" alt=""><?php endif; ?>
   <div class="inner">

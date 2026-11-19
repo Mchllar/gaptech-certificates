@@ -35,8 +35,10 @@ require_once __DIR__ . '/sheet_helpers.php';
   .blue { color: #2B62B0; }
   .fr  { font-family: "Old English Text MT", "CertBlackletter", serif; color: #F26B6B;
          -webkit-text-stroke: 1.6px #C62830; }
-  .micro { position: absolute; overflow: hidden; color: #EFEFEF; font-family: "Arial", "Liberation Sans", sans-serif;
-           font-weight: bold; font-size: 15px; line-height: 21px; white-space: nowrap; letter-spacing: 0.5px; }
+  /* The company-name bands. #EFEFEF was all but white on white and could not be read;
+     this blue-grey reads clearly yet stays well behind the printed details. */
+  .micro { position: absolute; overflow: hidden; color: #C3D0DC; font-family: "Arial", "Liberation Sans", sans-serif;
+           font-weight: bold; font-size: 17px; line-height: 22px; white-space: nowrap; letter-spacing: 1px; }
   .cut-v { position: absolute; width: 0; border-left: 2px dashed #B9B9B9; }
   .cut-h { position: absolute; height: 0; border-top: 2px dashed #B9B9B9; }
   .box { position: absolute; border: 3px solid #E8584A; }
