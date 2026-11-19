@@ -88,17 +88,17 @@ $tt = [
     width: 210mm;
     height: 296mm;              /* a hair under A4 so it cannot push a blank third page */
     box-sizing: border-box;
-    padding: 20mm 14mm 16mm;
+    padding: 17mm 14mm 10mm;
     background: #fff;
     color: #1a1a1a;
     font-family: Arial, "Helvetica Neue", Helvetica, sans-serif;
-    font-size: 10.8pt;
-    line-height: 1.52;
+    font-size: 10.7pt;          /* with the tighter spacing, leaves a safe ~3cm spare at the foot */
+    line-height: 1.5;
     overflow: hidden;
   }
 
   .terms-sheet h1 {
-    margin: 0 0 11mm;
+    margin: 0 0 8mm;
     text-align: center;
     font-size: 12.4pt;
     font-weight: bold;
@@ -111,7 +111,7 @@ $tt = [
    * the thing that makes a transcription look wrong when you get it backwards.
    */
   .terms-clause {
-    margin: 0 0 5.5mm;
+    margin: 0 0 4.5mm;
   }
   .terms-clause b { font-weight: bold; }
 
@@ -120,14 +120,18 @@ $tt = [
    * continuation lines align under the first word, not under the letter.
    */
   .terms-sub {
-    margin: 0 0 4.5mm;
+    margin: 0 0 3.5mm;
     padding-left: 16mm;
     text-indent: -5mm;
   }
   .terms-sub b { font-weight: bold; }
 
+  /* Printing keeps the page ONE page tall. "height: auto" here let the terms grow past
+     the sheet whenever a PC or printer drew the text a little larger than this one does,
+     and the last lines then printed on a sheet of their own. There is now spare room at
+     the foot instead, so nothing needs to grow. */
   @media print {
-    .terms-sheet { height: auto; min-height: 0; }
+    .terms-sheet { height: 296mm; overflow: hidden; break-after: avoid; }
   }
 </style>
 

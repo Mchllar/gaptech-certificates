@@ -702,6 +702,59 @@ function pdf_matches_design(string $pdfPath, string $kind): bool
     return $made !== false && $made >= $newest;
 }
 
+/**
+ * Ask whoever prints this PDF for two-sided printing, flipped on the long edge, so a
+ * front-and-back document (the tracking certificate and its guarantee terms) comes out
+ * back to back. A preference, not a command: Adobe Reader, Edge and most viewers select
+ * "both sides" in their print dialog for it; the printer must support duplex.
+ *
+ * Done as a PDF "incremental update": the original bytes are left exactly as Chrome wrote
+ * them and a new version of the document catalogue is appended with the preference in it.
+ * Anything unexpected and the file is left untouched - a PDF that prints one-sided is far
+ * better than one that does not open.
+ */
+function pdf_request_duplex(string $pdfPath): bool
+{
+    $pdf = @file_get_contents($pdfPath);
+    if ($pdf === false || strpos($pdf, '/Duplex') !== false) {
+        return false;                                   // unreadable, or already set
+    }
+    if (!preg_match('~startxref\s+(\d+)\s+%%EOF\s*$~', $pdf, $sx)
+        || !preg_match_all('~trailer\s*<<(.*?)>>~s', $pdf, $tr)) {
+        return false;                                   // not the classic layout Chrome writes
+    }
+    $trailer = end($tr[1]);
+    if (!preg_match('~/Root\s+(\d+)\s+0\s+R~', $trailer, $rm) || !preg_match('~/Size\s+(\d+)~', $trailer, $sm)) {
+        return false;
+    }
+    $root = (int)$rm[1];
+    if (!preg_match('~(?:^|\s)' . $root . '\s+0\s+obj\s*<<(.*?)>>\s*endobj~s', $pdf, $cm)
+        || stripos($cm[1], '/Catalog') === false) {
+        return false;
+    }
+
+    // Chrome already writes a ViewerPreferences entry (/DisplayDocTitle); add Duplex inside
+    // it rather than a second one, which a viewer could take in place of the first.
+    $dict = $cm[1];
+    if (preg_match('~/ViewerPreferences\s*<<~', $dict)) {
+        $dict = preg_replace('~(/ViewerPreferences\s*<<)~', '$1/Duplex /DuplexFlipLongEdge ', $dict, 1);
+    } else {
+        $dict .= "\n/ViewerPreferences <</Duplex /DuplexFlipLongEdge>>";
+    }
+    $catalog = '<<' . $dict . '>>';
+    $info = preg_match('~/Info\s+(\d+\s+0\s+R)~', $trailer, $im) ? ' /Info ' . $im[1] : '';
+
+    $body   = "\n" . $root . " 0 obj\n" . $catalog . "\nendobj\n";
+    $objAt  = strlen($pdf) + 1;                          // where "N 0 obj" begins
+    $xrefAt = strlen($pdf) + strlen($body);
+    $update = $body
+        . "xref\n" . $root . " 1\n" . sprintf('%010d 00000 n', $objAt) . " \n"
+        . 'trailer' . "\n" . '<</Size ' . $sm[1] . ' /Root ' . $root . ' 0 R' . $info . ' /Prev ' . $sx[1] . ">>\n"
+        . "startxref\n" . $xrefAt . "\n%%EOF\n";
+
+    return file_put_contents($pdfPath, $update, FILE_APPEND | LOCK_EX) !== false;
+}
+
 function pdf_file_is_sane(string $pdfPath, string $orientation): bool
 {
     if (!is_file($pdfPath) || filesize($pdfPath) < 1000) {

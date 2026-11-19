@@ -631,6 +631,9 @@ function tracking_pdf(array $cert, bool $force = false): ?string
     // because the sheet declares the page break itself and Chrome honours it.
     pdf_render_certificate('tracking', (int)$cert['id'], $pdfPath, 'portrait');
 
+    // Front and back: ask the viewer to print it two-sided, so the terms land on the back.
+    pdf_request_duplex($pdfPath);
+
     q('UPDATE tracking_certificates SET pdf_path = ?, pdf_sha256 = ? WHERE id = ?',
         [$pdfPath, hash_file('sha256', $pdfPath), $cert['id']]);
 
