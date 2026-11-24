@@ -288,3 +288,18 @@ function require_client(): array
     }
     return $client;
 }
+/**
+ * Tell the page that asked for a download that the file is on its way.
+ *
+ * A download never loads a new page, so the spinning "working" ring on the
+ * button that started it would otherwise turn for ever. The page sends a random
+ * dl_token with the request and watches for a cookie carrying the same value;
+ * this sets that cookie. Call it just before the file's headers go out.
+ */
+function download_started(): void
+{
+    $token = (string)($_REQUEST['dl_token'] ?? '');
+    if ($token !== '' && preg_match('/^[A-Za-z0-9]{6,40}$/', $token) && !headers_sent()) {
+        setcookie('dl_done', $token, ['expires' => time() + 120, 'path' => '/', 'samesite' => 'Lax']);
+    }
+}

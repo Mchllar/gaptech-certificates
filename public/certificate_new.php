@@ -8,7 +8,8 @@
 require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/certificates.php';
 require APP_DIR . '/views/layout.php';
-require_once APP_DIR . '/batches.php';          // bulk certificates
+require_once APP_DIR . '/batches.php';
+require_once APP_DIR . '/spreadsheet.php';      // CSV or Excel (.xlsx)          // bulk certificates
 
 $user = require_admin();
 $errors = [];
@@ -63,10 +64,9 @@ if (isset($_GET['template'])) {
             fputcsv($out, [$r['reg_no'], $r['make'], $r['chassis_no'],
                            $r['serial_no'] ?: '', '']);
         }
-    } else {
-        fputcsv($out, ['KBZ 411T', 'Isuzu FRR', 'JAANPR75L07100123',
-                       '8612340001', date('Y-m-d')]);
     }
+    // No example row. A made-up vehicle left in the sheet by mistake would be uploaded
+        // as a real one; the format of each column is explained on the page instead.
     fclose($out);
     exit;
 }
@@ -493,11 +493,11 @@ if ($isFleetPost) {
             $fleetErrors[] = 'Choose the filled-in spreadsheet to upload.';
         } elseif (($up['error'] ?? 0) !== UPLOAD_ERR_OK) {
             $fleetErrors[] = 'That file did not arrive in one piece (error ' . (int)$up['error']
-                           . '). If it is an Excel file, save it as CSV first.';
+                           . '). Try uploading it again.';
         } else {
             try {
                 $fleet = batch_preview($fleetForm,
-                            $fleetApplyDefaults(batch_rows_from_csv($up['tmp_name'])),
+                            $fleetApplyDefaults(batch_rows_from_csv(spreadsheet_as_csv($up['tmp_name'], (string)($up['name'] ?? '')))),
                             $fleetForm['issue_date']);
             } catch (Throwable $e) {
                 $fleetErrors[] = $e->getMessage();
@@ -662,10 +662,64 @@ $showFleet = $isFleetPost;
 
     <fieldset>
       <legend>The spreadsheet</legend>
-      <p class="field-hint" style="margin-top:0">Download it, fill it in, upload it back.
-         For a customer already on file it comes down with their vehicles in it, so a renewal
-         only needs the fitting dates. Five columns: registration, make, chassis, serial and
-         the date fitted.</p>
+      <p class="field-hint" style="margin-top:0">Download it, fill it in with one row per
+         vehicle, and upload it back. For a customer already on file it comes down with their
+         vehicles in it, so a renewal only needs the fitting dates; otherwise it has the
+         headings only.</p>
+      <?php /* The format of each column, here rather than as an example row in the sheet:
+               a made-up lorry left in by mistake would be uploaded as a real one. */ ?>
+      <div class="cols-help">
+        <button type="button" class="cols-help-btn" aria-expanded="false" aria-controls="sg-cols-panel">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v5.5M12 7.5v.01"/></svg>
+          Instructions: what goes in each column</button>
+        <div class="cols-help-panel" id="sg-cols-panel" role="region" aria-label="What goes in each column">
+      <table class="details sg-cols">
+        <tr><th>Reg No *</th><td>As on the plate, e.g. KDK 259X (the space is optional)</td></tr>
+        <tr><th>Make</th><td>e.g. ISUZU FRR</td></tr>
+        <tr><th>Chassis No</th><td>As on the logbook</td></tr>
+        <tr><th>Serial No *</th><td>The governor's serial number. In Excel, set this column to
+            <strong>Text</strong> first, or long numbers lose their digits</td></tr>
+        <tr><th>Installed On</th><td>The fitting date, e.g. 2026-11-24. Blank means the issue date</td></tr>
+      </table>
+      <p class="field-hint" style="margin:8px 0 0">* required. Rows that break a rule are
+         shown and skipped in the preview, never saved.</p>
+        </div>
+      </div>
+      <style>
+        .cols-help { position: relative; display: inline-block; margin: 0 0 16px; }
+        .cols-help .cols-help-btn { display: inline-flex; align-items: center; gap: 6px; padding: 0; margin: 0;
+          background: none; border: 0; box-shadow: none; color: #0D4F72; font: inherit; font-size: 13.5px;
+          font-weight: 600; cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
+        .cols-help .cols-help-panel { display: none; position: absolute; z-index: 60; left: 0; top: calc(100% + 8px);
+          width: min(760px, calc(100vw - 48px)); padding: 12px; background: #fff; border: 1px solid #E4EBF2;
+          border-radius: 12px; box-shadow: 0 18px 40px -10px rgba(13,79,114,.30); }
+        /* A bridge over the 8px gap, so moving the pointer down onto the panel does not close it. */
+        .cols-help .cols-help-panel::before { content: ""; position: absolute; left: 0; right: 0; top: -9px; height: 9px; }
+        .cols-help:hover .cols-help-panel, .cols-help:focus-within .cols-help-panel,
+        .cols-help.is-open .cols-help-panel { display: block; }
+        /* The table fits the panel: fixed layout, and long explanations wrap. */
+        .cols-help .sg-cols { margin: 0; font-size: 13px; width: 100%; table-layout: fixed; box-shadow: none; }
+        .cols-help .sg-cols td { white-space: normal; overflow-wrap: anywhere; }
+        .cols-help .sg-cols th { width: 130px; white-space: nowrap; }
+      </style>
+      <script>
+      // Hover is not available on a phone or tablet: a tap opens and closes it, Escape closes it.
+      (function () {
+        var box = document.currentScript.previousElementSibling.previousElementSibling;
+        var btn = box.querySelector('.cols-help-btn');
+        btn.addEventListener('click', function () {
+          var open = box.classList.toggle('is-open');
+          btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        document.addEventListener('click', function (e) {
+          if (!box.contains(e.target)) { box.classList.remove('is-open'); btn.setAttribute('aria-expanded', 'false'); }
+        });
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') { box.classList.remove('is-open'); btn.setAttribute('aria-expanded', 'false'); btn.blur(); }
+        });
+      })();
+      </script>
 
       <p class="field-hint" style="margin:0 0 16px">
          <?= e($defaults['device_model']) ?> &middot; <?= e($defaults['set_speed_kmh']) ?> km/h
@@ -679,9 +733,9 @@ $showFleet = $isFleetPost;
 
       <label class="field">The filled-in file <span class="req">*</span>
         <span class="field-row">
-          <input type="file" name="csv" accept=".csv,text/csv,application/vnd.ms-excel">
+          <input type="file" name="csv" accept=".csv,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
         </span>
-        <span class="field-hint">From Excel: File, Save As, "CSV (Comma delimited)".</span>
+        <span class="field-hint">An Excel file (.xlsx) or a CSV, straight from Excel. Only the first sheet is read.</span>
       </label>
 
       <label class="field">Issue date <span class="req">*</span>
@@ -715,14 +769,15 @@ $showFleet = $isFleetPost;
     <button type="button" id="preview-opener" data-modal="#m-preview" style="display:none"></button>
 
     <div class="gt-modal" id="m-preview">
-      <form class="gt-box" method="post" style="max-width:900px">
+      <form class="gt-box" method="post" style="width:min(1000px, calc(100vw - 32px)); max-width:none">
         <h3>What is in that file</h3>
 
         <p class="gt-hint"><?= (int)$c['new'] ?> first fittings &middot;
            <?= (int)$c['renewal'] ?> renewals &middot;
            <?= (int)$c['moved'] ?> with a governor moved from another lorry &middot;
            <?= (int)$c['blocked'] ?> that cannot be created.
-           <strong>Nothing has been saved yet.</strong></p>
+           <strong>Nothing has been saved yet.</strong> Everything that can be created goes to
+           accounts for approval when you click Create.</p>
 
         <?php if ($fleetOverrode): ?>
           <p class="gt-hint" style="color:#8A5A00">
@@ -745,7 +800,7 @@ $showFleet = $isFleetPost;
         <div style="max-height:50vh; overflow:auto; margin:0 0 14px">
           <table class="list">
             <thead><tr><th>Line</th><th>Registration</th><th>Governor</th><th></th>
-                       <th>What will happen</th></tr></thead>
+                       <th style="min-width:260px">Details</th></tr></thead>
             <tbody>
             <?php foreach ($fleet['rows'] as $r):
               $badge = ['new' => 'Fitting', 'renewal' => 'Renewal',
@@ -756,7 +811,12 @@ $showFleet = $isFleetPost;
                     <span class="field-hint"><?= e($r['make']) ?></span></td>
                 <td><?= e($r['serial_no'] ?: '-') ?></td>
                 <td><span class="status status-<?= e($r['verdict']) ?>"><?= e($badge) ?></span></td>
-                <td><?= e(implode(' ', $r['notes'])) ?>
+                <?php /* Always says what happens to the row, then anything worth knowing. */
+                  $lead = ['new' => 'New fitting.',
+                            'renewal' => 'Renewal.',
+                            'moved' => 'Governor moved from another lorry.',
+                            'blocked' => 'Not created:'][$r['verdict']]; ?>
+                <td><strong><?= e($lead) ?></strong><?= $r['notes'] ? '<br>' . e(implode(' ', $r['notes'])) : '' ?>
                   <?php if (!empty($r['needs_confirm']) && $r['verdict'] !== 'blocked'): ?>
                     <div style="display:flex; align-items:center; gap:8px; margin-top:8px">
                       <input type="checkbox" name="confirm[]" value="<?= (int)$r['line'] ?>"

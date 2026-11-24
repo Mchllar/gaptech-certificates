@@ -264,6 +264,9 @@ function create_tracking_cert(array $in, array $user, ?int $renewedFrom = null):
 
     // Stored and printed as "KDK 259X", whichever way it was typed.
     $in['reg_no'] = plate_display((string)$in['reg_no']);
+    // And the financier as one name per bank: "KCB" or "Kenya Commercial Bank Ltd" both
+    // print as KCB BANK KENYA LTD, HFC as HFCB BANK, none as N/A.
+    $in['financier'] = trk_financier_canonical((string)($in['financier'] ?? ''));
 
     // One box or two on the form; the certificate prints them in one box. Accepts
     // either 'imeis' (a list) or the old single 'imei', so nothing that still
@@ -285,8 +288,12 @@ function create_tracking_cert(array $in, array $user, ?int $renewedFrom = null):
             'colour'     => $in['colour'],
             'ownership'  => $in['ownership'],
             'financier'  => $in['financier'],
+            // Kept, not printed: a government vehicle's civilian plate.
+            'civilian_plate' => (string)($in['civilian_plate'] ?? ''),
         ],
         'device' => [
+            // Kept, not printed: the SIM card in the tracker.
+            'sim_card' => (string)($in['sim_card'] ?? ''),
             // imeis is the list; imei is the string that gets printed. Both are
             // frozen: the sheet reads whichever it finds, and every certificate
             // issued before two units were possible only has the second.
@@ -309,13 +316,16 @@ function create_tracking_cert(array $in, array $user, ?int $renewedFrom = null):
     $id = (int)q("INSERT INTO tracking_certificates
           (client_name, client_phone, reg_no, make_model, chassis_no, engine_no, colour,
            ownership, financier, imei, installed_on, subscription_date, expiry_date,
-           signed_by, verify_token, snapshot, issued_by, renewed_from, approval_status)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending') RETURNING id", [
+           signed_by, verify_token, snapshot, issued_by, renewed_from, approval_status,
+           civilian_plate, sim_card)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?,?) RETURNING id", [
         $in['client_name'], $in['client_phone'], $in['reg_no'], $in['make_model'],
         $in['chassis_no'], $in['engine_no'], $in['colour'], $in['ownership'],
         $in['financier'], $trkLine, $in['installed_on'], $in['subscription_date'],
         $in['expiry_date'], $in['signed_by'], $token, json_encode($snapshot), $user['id'],
         $renewedFrom,
+        mb_strtoupper(trim((string)($in['civilian_plate'] ?? '')), 'UTF-8'),
+        trim((string)($in['sim_card'] ?? '')),
     ])->fetchColumn();
 
     set_tracking_imeis($id, $trkImeis);
@@ -354,6 +364,14 @@ function approve_tracking_cert(array $cert, array $user, string $ref, string $no
                 . ($used['number']
                     ? str_pad((string)$used['number'], 5, '0', STR_PAD_LEFT)
                     : 'TRK-' . str_pad((string)$used['id'], 5, '0', STR_PAD_LEFT)) . '.');
+        }
+
+        // A reference that released a fleet cannot release a single certificate too.
+        $fleetPaid = q('SELECT batch_id FROM tracking_batch_payments WHERE upper(payment_ref) = ?',
+                       [$ref])->fetch();
+        if ($fleetPaid) {
+            throw new RuntimeException('That payment reference was already used to release fleet '
+                . $fleetPaid['batch_id'] . '.');
         }
 
         $number = next_tracking_number();
@@ -477,6 +495,9 @@ function renew_tracking_cert(array $old, array $user, string $note, int $months 
         'colour'            => $s['vehicle']['colour']     ?? $old['colour'],
         'ownership'         => $s['vehicle']['ownership']   ?? $old['ownership'],
         'financier'         => $s['vehicle']['financier']   ?? $old['financier'],
+        // Carried forward, never printed: a government vehicle's civilian plate and the SIM.
+        'civilian_plate'    => (string)($old['civilian_plate'] ?? ''),
+        'sim_card'          => (string)($old['sim_card'] ?? ''),
         // Both units carry forward. The live rows are the truth; the snapshot is
         // the fallback for a certificate issued before tracking_imeis existed,
         // and $old['imei'] the fallback for one whose snapshot predates even that.
@@ -551,8 +572,14 @@ function render_tracking_sheet(array $cert, string $mode = 'screen'): string
         : 'assets';
     $trackingMode = $mode;
 
+    // Onto a pre-printed blank: the entries only, placed on the blank's boxes.
+    // Only ever on screen (for the print dialog) - a PDF always carries the
+    // whole design, since nobody knows what paper it will meet.
+    $view = ($mode === 'screen' && ($GLOBALS['tracking_print_stock'] ?? 'plain') === 'preprinted')
+        ? 'tracking_sheet_preprinted.php' : 'tracking_sheet.php';
+
     ob_start();
-    include APP_DIR . '/views/tracking_sheet.php';
+    include APP_DIR . '/views/' . $view;
     return (string)ob_get_clean();
 }
 
@@ -777,4 +804,334 @@ function tracking_device_history(string $imei): array
                 JOIN tracking_imeis i ON i.cert_id = c.id
                WHERE i.imei = ?
                ORDER BY c.subscription_date DESC, c.id DESC", [$imei])->fetchAll();
+}
+
+
+// ---------------------------------------------------------------------------
+// Rules shared by the single-vehicle form and the fleet upload
+// ---------------------------------------------------------------------------
+
+/**
+ * Extra months a financier's agreement adds to a FIRST installation.
+ *
+ * KCB and GAPTECH have an arrangement that gives KCB-financed vehicles three
+ * months on top. It lives in the `financier_bonus` setting rather than in this
+ * file, written as NAME:MONTHS, comma separated:
+ *
+ *     KENYA COMMERCIAL BANK:3, KCB:3
+ *
+ * Both spellings are listed because either may be typed. Commercial agreements
+ * end, and when this one does it is a line in Settings, not a code change and a
+ * deployment - clear the setting and new certificates go back to the plain term.
+ *
+ * Matching ignores case, punctuation and spacing, so "Kenya Commercial Bank",
+ * "KENYA COMMERCIAL BANK" and "K.C.B." all find their entry.
+ */
+function trk_financier_bonus(string $financier): int
+{
+    // Compared by the name the certificate prints, so every spelling of a bank
+    // ("KCB", "KCB Bank", "Kenya Commercial Bank Ltd") finds the same agreement.
+    $want = trk_financier_canonical($financier);
+    if ($want === '') {
+        return 0;
+    }
+
+    foreach (explode(',', (string)setting('financier_bonus', 'KCB BANK KENYA LTD:3')) as $pair) {
+        $bits = explode(':', $pair);
+        if (count($bits) !== 2) {
+            continue;
+        }
+        if (trk_financier_canonical($bits[0]) === $want) {
+            return max(0, min(24, (int)trim($bits[1])));   // a sane ceiling, not a free hand
+        }
+    }
+
+    return 0;
+}
+
+/**
+ * The financier as the certificate prints it, whichever way it was typed.
+ *
+ * The `financier_names` setting lists each bank's printed name and the spellings that
+ * mean it:
+ *
+ *     KCB BANK KENYA LTD = KCB | KENYA COMMERCIAL BANK ; HFCB BANK = HFC | HFCB | HOUSING FINANCE
+ *
+ * Spellings are compared ignoring case, punctuation and the filler words that get added
+ * or dropped (Bank, Kenya, Ltd, Limited, PLC, Group, Company), so "KCB", "K.C.B.",
+ * "KCB Bank", "KCB Bank Kenya Ltd" and "Kenya Commercial Bank Limited" all print as
+ * KCB BANK KENYA LTD. A financier not on the list is kept as typed, in capitals.
+ * "None", "N/A", "Cash" or nothing at all means no financier: '' (printed as N/A).
+ */
+function trk_financier_canonical(string $typed): string
+{
+    $clean = mb_strtoupper(trim(preg_replace('/\s+/', ' ', $typed)), 'UTF-8');
+    if ($clean === '' || in_array(preg_replace('/[^A-Z]/', '', $clean), ['NA', 'NONE', 'NIL', 'CASH', 'N'], true)
+        || trim($clean, " -/.") === '') {
+        return '';
+    }
+    $names = trk_financier_names();
+    return $names[trk_financier_key($clean)] ?? $clean;
+}
+
+/** A spelling reduced to what identifies the bank: capitals, no punctuation, no filler words. */
+function trk_financier_key(string $s): string
+{
+    $words = preg_split('/[^A-Z0-9]+/', mb_strtoupper($s, 'UTF-8'), -1, PREG_SPLIT_NO_EMPTY);
+    $filler = ['BANK', 'KENYA', 'K', 'LTD', 'LIMITED', 'PLC', 'GROUP', 'CO', 'COMPANY', 'THE'];
+    $kept = array_values(array_diff($words, $filler));
+    // A name made only of filler words ("Bank") is kept whole rather than becoming nothing.
+    return implode('', $kept ?: $words);
+}
+
+/** key => printed name, from the financier_names setting. */
+function trk_financier_names(): array
+{
+    static $map = null;
+    if ($map !== null) {
+        return $map;
+    }
+    $map = [];
+    $raw = (string)setting('financier_names',
+        'KCB BANK KENYA LTD = KCB | KENYA COMMERCIAL BANK ; HFCB BANK = HFC | HFCB | HOUSING FINANCE');
+    foreach (explode(';', $raw) as $entry) {
+        $parts = explode('=', $entry, 2);
+        $printed = mb_strtoupper(trim($parts[0]), 'UTF-8');
+        if ($printed === '') {
+            continue;
+        }
+        $map[trk_financier_key($printed)] = $printed;
+        foreach (explode('|', (string)($parts[1] ?? '')) as $alias) {
+            if (trim($alias) !== '') {
+                $map[trk_financier_key($alias)] = $printed;
+            }
+        }
+    }
+    return $map;
+}
+
+/**
+ * Has this vehicle ever had a tracking certificate before?
+ *
+ * The agreement is a sign-up benefit, so it applies to a first installation only.
+ * A rejected certificate does not count as a previous one - it was never issued -
+ * but a voided or expired one does: the vehicle was signed up, whatever happened
+ * afterwards.
+ *
+ * Checked on the server at save time, not taken from the form, because this
+ * decides a date that gets printed.
+ */
+function trk_is_first_installation(string $reg): bool
+{
+    if (trim($reg) === '') {
+        return true;
+    }
+    $seen = q("SELECT 1 FROM tracking_certificates
+                WHERE regexp_replace(upper(reg_no), '[^A-Z0-9]', '', 'g') = ?
+                  AND approval_status <> 'rejected'
+                LIMIT 1", [plate_key($reg)])->fetchColumn();
+
+    return $seen === false;
+}
+
+
+
+// ---------------------------------------------------------------------------
+// Correcting a certificate
+// ---------------------------------------------------------------------------
+
+/** The details an administrator may correct: key => label. Serial and payment are not here. */
+const TRK_EDITABLE = [
+    'client_name'       => 'Customer name',
+    'client_phone'      => 'Contact',
+    'reg_no'            => 'Registration',
+    'civilian_plate'    => 'Civilian plate',
+    'make_model'        => 'Make / model',
+    'chassis_no'        => 'Chassis no.',
+    'engine_no'         => 'Engine no.',
+    'colour'            => 'Colour',
+    'ownership'         => 'Ownership',
+    'financier'         => 'Financier',
+    'imei'              => 'Track IMEI',
+    'imei_2'            => 'Second unit',
+    'sim_card'          => 'SIM card',
+    'installed_on'      => 'Installed on',
+    'subscription_date' => 'Subscription date',
+    'expiry_date'       => 'Expiry date',
+];
+
+/** A certificate's current values, in TRK_EDITABLE's shape. */
+function trk_current_values(array $cert): array
+{
+    $units = tracking_imeis((int)$cert['id']);
+    $v = [];
+    foreach (array_keys(TRK_EDITABLE) as $k) {
+        $v[$k] = (string)($cert[$k] ?? '');
+    }
+    $v['imei']   = (string)($units[0] ?? $cert['imei'] ?? '');
+    $v['imei_2'] = (string)($units[1] ?? '');
+    return $v;
+}
+
+/**
+ * Correct any detail of a tracking certificate, with a reason.
+ *
+ * Changes the record AND the copy frozen for printing together, so the screen and the
+ * certificate can never disagree, and writes every change - from what, to what, and why -
+ * to the audit log, where the certificate page shows it as its edit history.
+ *
+ * Voided and superseded certificates cannot be changed: they are history. The serial
+ * number and the payment are not editable here - those belong to accounts.
+ *
+ * Returns the changes as field => [from, to].
+ */
+function trk_amend(array $cert, array $in, array $user, string $reason, bool $ownTransaction = true,
+                   array $auditExtra = []): array
+{
+    $reason = trim($reason);
+    if (mb_strlen($reason) < 5) {
+        throw new RuntimeException('Say why these details are being changed (a few words at least). '
+            . 'It is kept with the certificate.');
+    }
+    if (in_array((string)$cert['status'], ['voided', 'superseded'], true)) {
+        throw new RuntimeException('A ' . $cert['status'] . ' certificate is history and cannot be changed.');
+    }
+    if (($cert['approval_status'] ?? '') === 'rejected') {
+        throw new RuntimeException('A rejected certificate cannot be changed. Raise a new one.');
+    }
+
+    $old = trk_current_values($cert);
+    $new = [];
+    foreach (array_keys(TRK_EDITABLE) as $k) {
+        $new[$k] = trim((string)($in[$k] ?? $old[$k]));
+    }
+    foreach (['client_name', 'make_model', 'chassis_no', 'engine_no', 'colour', 'ownership', 'civilian_plate'] as $k) {
+        $new[$k] = mb_strtoupper($new[$k], 'UTF-8');
+    }
+    $new['reg_no']         = plate_display($new['reg_no']);
+    $new['civilian_plate'] = $new['civilian_plate'] !== '' ? plate_display($new['civilian_plate']) : '';
+    $new['financier']      = trk_financier_canonical($new['financier']);
+
+    // The same rules as raising one.
+    foreach (['client_name', 'reg_no', 'make_model', 'chassis_no', 'engine_no', 'colour', 'ownership', 'imei',
+              'installed_on', 'subscription_date', 'expiry_date'] as $k) {
+        if ($new[$k] === '') {
+            throw new RuntimeException(TRK_EDITABLE[$k] . ' cannot be blank.');
+        }
+    }
+    if ($new['client_phone'] !== '' && !preg_match('/^[0-9+ ]+$/', $new['client_phone'])) {
+        throw new RuntimeException('Contact may contain only digits, spaces and +.');
+    }
+    foreach (['installed_on', 'subscription_date', 'expiry_date'] as $k) {
+        $t = strtotime($new[$k]);
+        if ($t === false) {
+            throw new RuntimeException(TRK_EDITABLE[$k] . ' is not a valid date.');
+        }
+        $new[$k] = date('Y-m-d', $t);
+    }
+    if ($new['subscription_date'] < $new['installed_on']) {
+        throw new RuntimeException('The subscription cannot start before the unit was installed.');
+    }
+    if ($new['expiry_date'] <= $new['subscription_date']) {
+        throw new RuntimeException('The expiry date must be after the subscription date.');
+    }
+    if (!preg_match('/^[0-9]{10,17}$/', $new['imei'])) {
+        throw new RuntimeException('A tracker IMEI is 10 to 17 digits.');
+    }
+    if ($new['imei_2'] !== '' && !preg_match('/^[A-Za-z0-9][A-Za-z0-9 \-\/]{3,31}$/', $new['imei_2'])) {
+        throw new RuntimeException('The second unit number looks wrong: 4 to 32 letters, digits or hyphens.');
+    }
+    if ($new['imei'] === $new['imei_2']) {
+        throw new RuntimeException('Both unit boxes have the same number.');
+    }
+
+    $changes = [];
+    foreach ($new as $k => $v) {
+        if ($v !== $old[$k]) {
+            $changes[$k] = [$old[$k], $v];
+        }
+    }
+    if (!$changes) {
+        throw new RuntimeException('Nothing was changed.');
+    }
+
+    // A unit cannot be in two vehicles: a new IMEI must not be live on another certificate.
+    foreach (['imei', 'imei_2'] as $k) {
+        if (isset($changes[$k]) && $new[$k] !== '' && ($held = tracking_imei_in_use($new[$k], (int)$cert['id']))) {
+            throw new RuntimeException('Unit ' . $new[$k] . ' is already on ' . tracking_label($held)
+                . ' for ' . $held['reg_no'] . '. Record its removal there first.');
+        }
+    }
+
+    // A fleet edit runs every vehicle inside ONE transaction of its own (all or none), so it
+    // asks this not to open another.
+    $pdo = db();
+    if ($ownTransaction) { $pdo->beginTransaction(); }
+    try {
+        $s = json_decode((string)$cert['snapshot'], true) ?: [];
+        $s['client']['name']  = $new['client_name'];
+        $s['client']['phone'] = $new['client_phone'];
+        foreach (['reg_no', 'make_model', 'chassis_no', 'engine_no', 'colour', 'ownership', 'financier', 'civilian_plate'] as $k) {
+            $s['vehicle'][$k] = $new[$k];
+        }
+        $s['device']['sim_card'] = $new['sim_card'];
+        foreach (['installed_on', 'subscription_date', 'expiry_date'] as $k) {
+            $s['cert'][$k] = $new[$k];
+            $s['cert'][$k . '_fmt'] = fmt_date($new[$k]);
+        }
+        $units = tracking_imei_clean([$new['imei'], $new['imei_2']]);
+        $s['device']['imeis'] = $units;
+        $s['device']['imei']  = tracking_imei_line($units);
+
+        q('UPDATE tracking_certificates
+              SET client_name = ?, client_phone = ?, reg_no = ?, civilian_plate = ?, make_model = ?,
+                  chassis_no = ?, engine_no = ?, colour = ?, ownership = ?, financier = ?, sim_card = ?,
+                  installed_on = ?, subscription_date = ?, expiry_date = ?, snapshot = ?,
+                  pdf_path = NULL, pdf_sha256 = NULL
+            WHERE id = ?',
+          [$new['client_name'], $new['client_phone'], $new['reg_no'], $new['civilian_plate'], $new['make_model'],
+           $new['chassis_no'], $new['engine_no'], $new['colour'], $new['ownership'], $new['financier'], $new['sim_card'],
+           $new['installed_on'], $new['subscription_date'], $new['expiry_date'], json_encode($s), (int)$cert['id']]);
+        if (isset($changes['imei']) || isset($changes['imei_2'])) {
+            set_tracking_imeis((int)$cert['id'], $units);
+        }
+
+        // A released certificate whose expiry or plate moved: work out again which of the
+        // vehicle's certificates is the current one, the same rule approval uses.
+        if (($cert['approval_status'] ?? '') === 'approved'
+            && array_intersect_key($changes, ['expiry_date' => 1, 'reg_no' => 1])) {
+            foreach (array_unique([plate_key((string)$cert['reg_no']), plate_key($new['reg_no'])]) as $key) {
+                q("UPDATE tracking_certificates c
+                      SET status = CASE WHEN c.id = cur.id THEN 'issued' ELSE 'superseded' END
+                    FROM (SELECT id FROM tracking_certificates
+                           WHERE regexp_replace(upper(reg_no), '[^A-Z0-9]', '', 'g') = ?
+                             AND approval_status = 'approved' AND status NOT IN ('voided', 'removed')
+                           ORDER BY expiry_date DESC, number DESC LIMIT 1) cur
+                    WHERE regexp_replace(upper(c.reg_no), '[^A-Z0-9]', '', 'g') = ?
+                      AND c.approval_status = 'approved' AND c.status NOT IN ('voided', 'removed')",
+                  [$key, $key]);
+            }
+        }
+
+        audit('amend_tracking', 'tracking_certificate', (int)$cert['id'], [
+            'reason'  => $reason,
+            'changes' => $changes,
+            'by'      => (int)$user['id'],
+        ] + $auditExtra);
+        if ($ownTransaction) { $pdo->commit(); }
+    } catch (Throwable $e) {
+        if ($ownTransaction) { $pdo->rollBack(); }
+        throw $e;
+    }
+    return $changes;
+}
+
+/** This certificate's corrections, newest first: when, who, why, and what changed. */
+function trk_amendments(int $certId): array
+{
+    return q("SELECT a.created_at, a.details, u.name AS by_name
+                FROM audit_log a
+                LEFT JOIN users u ON a.actor_type = 'staff' AND u.id = a.actor_id
+               WHERE a.action = 'amend_tracking' AND a.entity = 'tracking_certificate' AND a.entity_id = ?
+               ORDER BY a.created_at DESC", [$certId])->fetchAll();
 }

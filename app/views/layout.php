@@ -122,6 +122,97 @@ function layout_top(string $title, string $nav = 'staff'): void
         });
       })();
     </script>
+
+    <div class="busy-overlay" id="busy-overlay" aria-hidden="true"></div>
+    <script>
+      /*
+       * "Something is happening": a spinning ring on the button that started it.
+       *
+       *  - any form that is sent shows it on its submit button until the next page
+       *    arrives. A form whose own check said no (a confirm() answered Cancel, a
+       *    missing field) is left alone - that is what defaultPrevented tells us.
+       *  - a download - a form with data-download, or a link with download=1 in
+       *    it - sends a dl_token and the ring stops when the server's dl_done
+       *    cookie comes back carrying it (download_started() in bootstrap.php).
+       *
+       * The button is never disabled: a disabled submit button is left out of
+       * what the form sends, and several forms here rely on name="action".
+       */
+      (function () {
+        var overlay = document.getElementById('busy-overlay');
+
+        function token() {
+          return Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
+        }
+
+        function stop(el, form) {
+          if (el) { el.classList.remove('is-busy'); el.removeAttribute('aria-busy'); }
+          if (form) {
+            delete form.dataset.busy;
+            form.dispatchEvent(new CustomEvent('busy:done'));
+          }
+          overlay.classList.remove('on');
+        }
+
+        // Wait for the server to say the file has started, then stop. Gives up
+        // after two minutes so a failed download never leaves it turning.
+        function watchDownload(tok, el, form) {
+          var started = Date.now();
+          var timer = setInterval(function () {
+            var done = document.cookie.split('; ').indexOf('dl_done=' + tok) !== -1;
+            if (done || Date.now() - started > 120000) {
+              clearInterval(timer);
+              document.cookie = 'dl_done=; path=/; max-age=0';
+              stop(el, form);
+            }
+          }, 400);
+        }
+
+        document.addEventListener('submit', function (e) {
+          var form = e.target;
+          if (e.defaultPrevented || form.target === '_blank') { return; }
+          if (form.dataset.busy) { e.preventDefault(); return; }   // already sent once
+          form.dataset.busy = '1';
+
+          var btn = e.submitter
+                 || form.querySelector('button[type=submit], button:not([type]), input[type=submit]')
+                 || document.querySelector('[form="' + form.id + '"][type=submit]');
+          if (btn) { btn.classList.add('is-busy'); btn.setAttribute('aria-busy', 'true'); }
+          else { overlay.classList.add('on'); }
+
+          if (form.hasAttribute('data-download')) {
+            var tok = token();
+            var input = form.querySelector('input[name=dl_token]');
+            if (!input) {
+              input = document.createElement('input');
+              input.type = 'hidden'; input.name = 'dl_token';
+              form.appendChild(input);
+            }
+            input.value = tok;
+            watchDownload(tok, btn, form);
+          }
+        });
+
+        document.addEventListener('click', function (e) {
+          var a = e.target.closest && e.target.closest('a[href*="download=1"]');
+          if (!a || a.target === '_blank' || e.ctrlKey || e.metaKey || e.shiftKey) { return; }
+          e.preventDefault();
+          if (a.classList.contains('is-busy')) { return; }
+          var tok = token();
+          a.classList.add('is-busy');
+          watchDownload(tok, a, null);
+          location.href = a.href + (a.href.indexOf('?') === -1 ? '?' : '&') + 'dl_token=' + tok;
+        });
+
+        // Coming back with the Back button shows the page as it was left -
+        // ring and all - so clear everything.
+        window.addEventListener('pageshow', function (e) {
+          if (!e.persisted) { return; }
+          document.querySelectorAll('.is-busy').forEach(function (el) { stop(el, null); });
+          document.querySelectorAll('form[data-busy]').forEach(function (f) { stop(null, f); });
+        });
+      })();
+    </script>
   </main>
   <footer>GAPTECH Solutions Ltd &middot; SG Certificate System</footer>
   </div>

@@ -66,12 +66,7 @@ if ($rows) {
             '12',
         ]);
     }
-} else {
-    // an example line, so the shape of each column is obvious. Delete it and
-    // type over it - a row with no registration is skipped, not an error.
-    fputcsv($out, ['KBZ 411T', 'Isuzu FRR', 'JAANPR75L07100123',
-                   setting('default_device_model', 'Mobiwire MW-02'), '8612340001',
-                   setting('default_set_speed', '80'), '', date('Y-m-d'), '12']);
 }
+// No example row: a made-up vehicle left in the sheet would be uploaded as a real one.
 
 fclose($out);

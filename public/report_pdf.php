@@ -149,6 +149,7 @@ try {
 audit('report_pdf', 'report', null, ['from' => $P['from']->format('Y-m-d'), 'to' => $P['to']->format('Y-m-d'), 'module' => $P['module']]);
 
 header('Content-Type: application/pdf');
+download_started();   // stops the page's spinner
 header('Content-Disposition: attachment; filename="' . $name . '"');
 header('Content-Length: ' . filesize($path));
 header('Cache-Control: private, no-store');

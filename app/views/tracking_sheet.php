@@ -343,12 +343,30 @@ $rows = [
   }
 </style>
 </head>
-<body>
+<?php
+  // Printed from the screen, the stamp can be left off to be stamped by hand.
+  // A PDF always carries it: nobody can stamp a file.
+  $withStamp = ($trackingMode ?? 'screen') !== 'screen' || ($GLOBALS['tracking_print_stamp'] ?? true);
+  $withSig   = ($trackingMode ?? 'screen') !== 'screen' || ($GLOBALS['tracking_print_signature'] ?? true);
+?>
+<body class="<?= trim(($withStamp ? '' : 'no-stamp') . ' ' . ($withSig ? '' : 'no-sig')) ?>">
+<style>body.no-stamp .stamp { display: none; }
+  body.no-sig .sig-img { display: none; }
+  .screen-only .bar-opt { font: 14px "Segoe UI", system-ui, sans-serif; color: #33414F;
+                          display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }</style>
 
 <?php if (($trackingMode ?? 'screen') === 'screen'): ?>
 <div class="screen-only">
   <a class="bar-btn bar-back" href="tracking_view.php?id=<?= (int)($_GET['id'] ?? 0) ?>">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>Back to the certificate</a>
+  <?php if ($stampSrc): ?>
+    <label class="bar-opt"><input type="checkbox" <?= $withStamp ? 'checked' : '' ?>
+      onchange="document.body.classList.toggle('no-stamp', !this.checked)"> Print the stamp</label>
+  <?php endif; ?>
+  <?php if ($sigSrc): ?>
+    <label class="bar-opt"><input type="checkbox" <?= $withSig ? 'checked' : '' ?>
+      onchange="document.body.classList.toggle('no-sig', !this.checked)"> Print the signature</label>
+  <?php endif; ?>
   <button type="button" class="bar-btn bar-print" onclick="window.print()">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg>Print this certificate</button>
 </div>
@@ -421,7 +439,7 @@ $rows = [
       <span class="onrule name"><span><?= e($d['cert']['signed_by']) ?></span></span>
       <span class="cap">Signature:</span>
       <span class="onrule sigcell">
-        <?php if ($sigSrc): ?><img src="<?= e($sigSrc) ?>" alt=""><?php endif; ?>
+        <?php if ($sigSrc): ?><img class="sig-img" src="<?= e($sigSrc) ?>" alt=""><?php endif; ?>
       </span>
     </div>
 

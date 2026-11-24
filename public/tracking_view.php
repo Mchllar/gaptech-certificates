@@ -13,6 +13,7 @@
  */
 require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/tracking.php';
+require_once APP_DIR . '/tracking_batches.php';   // a certificate raised as part of a fleet
 require APP_DIR . '/views/layout.php';
 
 $user  = require_staff();
@@ -33,11 +34,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         try {
             // Every action checks the role here, on the server. The buttons below are
             // hidden from the wrong role as a courtesy, not as the control.
-            if ($action === 'approve' || $action === 'reject' || $action === 'update_ref') {
+            if (in_array($action, ['approve', 'approve_batch', 'reject', 'update_ref'], true)) {
                 if (!$isAcc) {
                     throw new RuntimeException('Approving and recording payments is for accounts.');
                 }
-            } elseif ($action === 'void' || $action === 'renew' || $action === 'remove_unit') {
+            } elseif (in_array($action, ['void', 'renew', 'remove_unit', 'fleet_edit'], true)) {
                 if (!$isAdm) {
                     throw new RuntimeException('That action is for administrators.');
                 }
@@ -49,6 +50,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     trim((string)($_POST['payment_note'] ?? '')));
                 flash('Approved. Certificate ' . tracking_label($done)
                     . ' can now be printed and downloaded.');
+                redirect('tracking_view.php?id=' . $id);
+
+            } elseif ($action === 'approve_batch') {
+                // The same release, for every vehicle ticked in the fleet this certificate
+                // came in with, on one payment. Anything left unticked stays waiting.
+                if (empty($target['batch_id'])) {
+                    throw new RuntimeException('This certificate was not raised as part of a fleet.');
+                }
+                $only = array_map('intval', (array)($_POST['cert'] ?? []));
+                if (!$only) {
+                    throw new RuntimeException('Tick at least one vehicle to release.');
+                }
+                $done = trk_batch_approve((int)$target['batch_id'], $user,
+                    (string)($_POST['payment_ref'] ?? ''),
+                    trim((string)($_POST['payment_note'] ?? '')), $only);
+                flash($done['approved'] . ' certificate' . ($done['approved'] === 1 ? '' : 's')
+                    . ' approved and numbered.'
+                    . ($done['still_pending']
+                        ? ' ' . $done['still_pending'] . ' still waiting - the fleet stays open.'
+                        : ' The whole fleet is done.'));
                 redirect('tracking_view.php?id=' . $id);
 
             } elseif ($action === 'reject') {
@@ -75,6 +96,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'was' => $target['payment_ref'], 'now' => $ref,
                 ]);
                 flash('Payment details updated.');
+                redirect('tracking_view.php?id=' . $id);
+
+            } elseif ($action === 'fleet_edit') {
+                // The ticked details, set to the same value on every vehicle in this fleet.
+                if (empty($target['batch_id'])) {
+                    throw new RuntimeException('This certificate was not raised as part of a fleet.');
+                }
+                $set = array_intersect_key((array)($_POST['set'] ?? []), (array)($_POST['apply'] ?? []));
+                $done = trk_amend_fleet((int)$target['batch_id'], $set, $user, (string)($_POST['reason'] ?? ''));
+                flash(implode(', ', array_map(fn($k) => TRK_EDITABLE[$k], array_keys($set))) . ' changed on '
+                    . $done['changed'] . ' vehicle' . ($done['changed'] === 1 ? '' : 's') . '.'
+                    . ($done['unchanged'] ? ' ' . $done['unchanged'] . ' already had those details.' : '')
+                    . ($done['skipped'] ? ' ' . $done['skipped'] . ' voided or rejected left as they are.' : '')
+                    . ' The reason is kept with each certificate.');
                 redirect('tracking_view.php?id=' . $id);
 
             } elseif ($action === 'void') {
@@ -143,6 +178,16 @@ if ($approved && !$live) {
     }
 }
 
+// The fleet this certificate was raised with, if any. A fleet of one is not worth
+// mentioning, so a single certificate looks exactly as it always did.
+$batch    = !empty($cert['batch_id']) ? trk_batch_get((int)$cert['batch_id']) : null;
+$siblings = $batch ? $batch['certificates'] : [];
+$waiting  = array_values(array_filter($siblings, fn($c) => $c['approval_status'] === 'pending'));
+if ($batch && count($siblings) < 2) {
+    $batch = null;
+    $siblings = $waiting = [];
+}
+
 layout_top('');
 layout_back('tracking_list.php', 'Back to Tracking Installations');
 ?>
@@ -173,6 +218,260 @@ layout_back('tracking_list.php', 'Back to Tracking Installations');
   <p class="hint" style="text-align:left; color:#8A5A00">
     This certificate has no serial number yet and cannot be printed or downloaded.
     It takes its number when accounts confirm the payment.</p>
+<?php endif; ?>
+
+<?php if ($batch):
+  // The fleet: 20 vehicles shown, the rest one click away. Clicking a vehicle shows its
+  // details in a pop-up; administrators can also change shared details for all of them.
+  $fleetLimit    = 20;
+  $fleetEditable = array_values(array_filter($siblings, fn($s) =>
+      !in_array((string)$s['status'], ['voided', 'superseded'], true) && $s['approval_status'] !== 'rejected'));
+  $popup = [];
+  foreach ($siblings as $s) {
+      $popup[(int)$s['id']] = [
+          'reg' => (string)$s['reg_no'], 'serial' => $s['number'] ? str_pad((string)$s['number'], 5, '0', STR_PAD_LEFT) : '',
+          'state' => ucfirst((string)$s['approval_status']), 'make' => (string)$s['make_model'],
+          'chassis' => (string)$s['chassis_no'], 'engine' => (string)$s['engine_no'], 'colour' => (string)$s['colour'],
+          'imei' => (string)$s['imei'], 'civ' => (string)$s['civilian_plate'], 'sim' => (string)$s['sim_card'],
+          'owner' => (string)$s['ownership'], 'contact' => (string)$s['client_phone'],
+          'fin' => (string)$s['financier'] !== '' ? (string)$s['financier'] : 'N/A',
+          'installed' => fmt_date((string)$s['installed_on']), 'sub' => fmt_date((string)$s['subscription_date']),
+          'exp' => fmt_date((string)$s['expiry_date']),
+          'editable' => !in_array((string)$s['status'], ['voided', 'superseded'], true) && $s['approval_status'] !== 'rejected',
+      ];
+  }
+  // For the "edit all" form: a detail's value if every vehicle shares it, otherwise blank.
+  $common = [];
+  foreach (TRK_FLEET_EDITABLE as $k) {
+      $vals = array_unique(array_map(fn($s) => (string)$s[$k], $fleetEditable));
+      $common[$k] = count($vals) === 1 ? (string)reset($vals) : null;
+  }
+?>
+  <details class="trk-fleet"<?= $pending ? ' open' : '' ?>>
+    <summary><?= count($siblings) ?> vehicles raised together for <?= e((string)$batch['client_name']) ?>
+      <?= $batch['label'] ? ' &middot; ' . e((string)$batch['label']) : '' ?>
+      &mdash; <?= $waiting ? count($waiting) . ' still waiting' : 'all approved' ?></summary>
+
+    <div class="trk-fleet-tools">
+      <span class="field-hint">Click a vehicle to see its details.</span>
+      <?php if ($isAdm && $fleetEditable): ?>
+        <button type="button" class="button secondary" data-modal="#m-fleet-edit">
+          Edit details for all <?= count($fleetEditable) ?> vehicles</button>
+      <?php endif; ?>
+    </div>
+
+    <div class="trk-fleet-wrap">
+      <table class="trk-fleet-table">
+        <thead><tr><th>Vehicle</th><th>Track IMEI</th><th>Serial</th><th>Status</th><th>Expires</th></tr></thead>
+        <tbody>
+        <?php foreach ($siblings as $i => $sib): $me = (int)$sib['id'] === (int)$cert['id']; ?>
+          <tr class="trk-fleet-row<?= $me ? ' is-me' : '' ?>"
+              data-id="<?= (int)$sib['id'] ?>" tabindex="0" role="button"
+              aria-label="Show details for <?= e((string)$sib['reg_no']) ?>">
+            <td><strong><?= e((string)$sib['reg_no']) ?></strong><?= $me ? ' <span class="field-hint">(this one)</span>' : '' ?></td>
+            <td><?= e((string)$sib['imei']) ?></td>
+            <td><?= $sib['number'] ? 'No. ' . e(str_pad((string)$sib['number'], 5, '0', STR_PAD_LEFT))
+                                   : '<span class="field-hint">on approval</span>' ?></td>
+            <td><?= e(ucfirst((string)$sib['approval_status'])) ?></td>
+            <td><?= e(fmt_date((string)$sib['expiry_date'])) ?></td>
+          </tr>
+        <?php endforeach; ?>
+        </tbody>
+      </table>
+    </div>
+    <?php /* The same pager as the rest of the system. Every vehicle is already on the page,
+             so it turns pages instantly, without reloading. */ ?>
+    <div class="pager trk-fleet-pager" id="fleetPager">
+      <form class="per-page" onsubmit="return false">
+        <label>Rows per page
+          <select id="fleetPer">
+            <?php foreach ([10, 20, 50, 100] as $pp): ?>
+              <option value="<?= $pp ?>" <?= $pp === $fleetLimit ? 'selected' : '' ?>><?= $pp ?></option>
+            <?php endforeach; ?>
+          </select>
+        </label>
+      </form>
+      <span class="pager-info" id="fleetInfo"></span>
+      <span class="pager-buttons">
+        <button type="button" class="button secondary" data-go="first">&laquo; First</button>
+        <button type="button" class="button secondary" data-go="prev">Previous</button>
+        <span class="pager-page" id="fleetPage"></span>
+        <button type="button" class="button secondary" data-go="next">Next</button>
+        <button type="button" class="button secondary" data-go="last">Last &raquo;</button>
+      </span>
+    </div>
+
+    <?php if ($batch['payments']): ?>
+      <p class="hint" style="text-align:left; margin:8px 0 0">Paid:
+        <?= e(implode(', ', array_map(fn($p) => $p['payment_ref'] . ' (' . $p['certificates'] . ')', $batch['payments']))) ?></p>
+    <?php endif; ?>
+  </details>
+
+  <!-- One vehicle's details, filled in from the row that was clicked. -->
+  <div class="gt-modal" id="m-vehicle" role="dialog" aria-modal="true" aria-labelledby="mv-title">
+    <div class="gt-box">
+      <h3 id="mv-title">Vehicle</h3>
+      <p class="gt-hint" id="mv-sub"></p>
+      <table class="details" id="mv-table"></table>
+      <div class="gt-foot">
+        <button type="button" class="button secondary gt-close">Close</button>
+        <a class="button secondary" id="mv-open" href="#">Open its page</a>
+        <?php if ($isAdm): ?><a class="button" id="mv-edit" href="#">Edit details</a><?php endif; ?>
+      </div>
+    </div>
+  </div>
+
+  <?php if ($isAdm && $fleetEditable): ?>
+  <!-- The same details for every vehicle in the fleet. -->
+  <div class="gt-modal" id="m-fleet-edit" role="dialog" aria-modal="true" aria-labelledby="mf-title">
+    <form class="gt-box" method="post" id="mfForm">
+      <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+      <input type="hidden" name="id" value="<?= (int)$cert['id'] ?>">
+      <input type="hidden" name="action" value="fleet_edit">
+      <h3 id="mf-title">Edit all <?= count($fleetEditable) ?> vehicles</h3>
+      <p class="gt-hint">Tick each detail to change, and it is set to the same value on every vehicle in
+        this fleet. Anything not ticked stays as it is. To change one vehicle only, click it in the list instead.</p>
+      <table class="details mf-table">
+        <?php
+          $mfFields = ['ownership' => ['text', true], 'financier' => ['text', true], 'client_name' => ['text', true],
+                       'client_phone' => ['tel', false], 'installed_on' => ['date', false],
+                       'subscription_date' => ['date', false], 'expiry_date' => ['date', false]];
+          foreach ($mfFields as $k => [$type, $caps]): ?>
+          <tr>
+            <td style="width:30px"><input type="checkbox" name="apply[<?= e($k) ?>]" value="1" id="mfa-<?= e($k) ?>"
+                     class="mf-tick" style="width:16px; margin:0"></td>
+            <th><label for="mfa-<?= e($k) ?>" style="margin:0; cursor:pointer"><?= e(TRK_EDITABLE[$k]) ?></label></th>
+            <td><input name="set[<?= e($k) ?>]" type="<?= e($type) ?>" class="mf-input<?= $caps ? ' caps' : '' ?>"
+                       value="<?= e((string)($common[$k] ?? '')) ?>" disabled
+                       <?= $k === 'financier' ? 'list="mf-banks"' : '' ?>
+                       placeholder="<?= $common[$k] === null ? 'Differs between vehicles' : '' ?>"></td>
+          </tr>
+        <?php endforeach; ?>
+      </table>
+      <datalist id="mf-banks">
+        <?php foreach (array_unique(array_values(trk_financier_names())) as $bank): ?><option value="<?= e($bank) ?>"><?php endforeach; ?>
+      </datalist>
+      <label class="gt-f">Reason for the change <span class="req">*</span>
+        <textarea name="reason" rows="2" required minlength="5" maxlength="300"
+                  placeholder="e.g. Fleet financed by Equity Bank; owner per the lease agreement"></textarea>
+      </label>
+      <p class="gt-hint">Each vehicle keeps this change and the reason in its own history. If any vehicle
+        would end up invalid (for example an expiry before its subscription date), nothing is saved.</p>
+      <div class="gt-foot">
+        <button type="button" class="button secondary gt-close">Cancel</button>
+        <button type="submit" class="button" id="mfSave" disabled>Tick a detail to change</button>
+      </div>
+    </form>
+  </div>
+  <?php endif; ?>
+
+  <?php require_once APP_DIR . '/views/modal_base.php'; ?>
+  <style>
+    .trk-fleet { margin: 0 0 22px; }
+    .trk-fleet summary { cursor: pointer; font-weight: 600; color: #0D4F72; padding: 10px 14px;
+                         background: #fff; border: 1px solid #E4EBF2; border-radius: 10px; }
+    .trk-fleet[open] summary { margin-bottom: 10px; }
+    .trk-fleet-tools { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+                       flex-wrap: wrap; margin: 0 0 10px; }
+    .trk-fleet-wrap { overflow-x: auto; border-radius: 12px; }
+    .trk-fleet-table { width: 100%; }
+    .trk-fleet-row { cursor: pointer; }
+    .trk-fleet-row:hover td, .trk-fleet-row:focus td { background: #F2F7FB; }
+    .trk-fleet-row:focus { outline: 2px solid rgba(24,144,208,.45); outline-offset: -2px; }
+    .trk-fleet-row.is-me td { background: #F6FAF0; }
+    .trk-fleet-row.is-off-page { display: none; }
+    .trk-fleet-pager { margin-top: 10px; }
+    .trk-fleet-pager .pager-buttons button[hidden] { display: none; }
+    #m-vehicle .gt-box { width: min(760px, calc(100vw - 32px)); }
+    #m-fleet-edit .gt-box { width: min(640px, calc(100vw - 32px)); }
+    #m-fleet-edit .mf-table th { width: 150px; white-space: nowrap; }
+    #m-fleet-edit .mf-input { width: 100%; padding: 8px 10px; border: 1px solid #D9E2EC; border-radius: 8px;
+                              font: inherit; font-size: 14px; }
+    #m-fleet-edit .mf-input:disabled { background: #F4F6F8; color: #8793A3; }
+    #m-fleet-edit textarea { width: 100%; }
+  </style>
+  <script>
+  (function () {
+    var data = <?= json_encode($popup, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    var isAdm = <?= $isAdm ? 'true' : 'false' ?>;
+
+    // Pages of vehicles, turned without reloading. Starts on the page with this certificate.
+    var rows = Array.prototype.slice.call(document.querySelectorAll('.trk-fleet-row'));
+    var perSel = document.getElementById('fleetPer'), info = document.getElementById('fleetInfo');
+    var pageLbl = document.getElementById('fleetPage'), pager = document.getElementById('fleetPager');
+    var per = parseInt(perSel.value, 10), page = 1;
+    var mine = rows.findIndex(function (r) { return r.classList.contains('is-me'); });
+    if (mine > -1) { page = Math.floor(mine / per) + 1; }
+    function pages() { return Math.max(1, Math.ceil(rows.length / per)); }
+    function draw() {
+      page = Math.min(Math.max(1, page), pages());
+      var from = (page - 1) * per, to = Math.min(from + per, rows.length);
+      rows.forEach(function (r, i) { r.classList.toggle('is-off-page', i < from || i >= to); });
+      info.textContent = (rows.length ? (from + 1) + '\u2013' + to : 0) + ' of ' + rows.length;
+      pageLbl.textContent = 'Page ' + page + ' of ' + pages();
+      pager.querySelector('[data-go=first]').hidden = pager.querySelector('[data-go=prev]').hidden = page <= 1;
+      pager.querySelector('[data-go=next]').hidden = pager.querySelector('[data-go=last]').hidden = page >= pages();
+    }
+    pager.querySelectorAll('[data-go]').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var go = b.dataset.go;
+        page = go === 'first' ? 1 : go === 'last' ? pages() : go === 'prev' ? page - 1 : page + 1;
+        draw();
+      });
+    });
+    perSel.addEventListener('change', function () {
+      var first = (page - 1) * per;          // keep the same vehicles in view
+      per = parseInt(perSel.value, 10); page = Math.floor(first / per) + 1; draw();
+    });
+    draw();
+
+    // A vehicle's details in a pop-up.
+    var modal = document.getElementById('m-vehicle');
+    function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+    function row(a, av, b, bv) { return '<tr><th>' + a + '</th><td>' + esc(av || '—') + '</td><th>' + b + '</th><td>' + esc(bv || '—') + '</td></tr>'; }
+    function show(id) {
+      var v = data[id]; if (!v) { return; }
+      document.getElementById('mv-title').textContent = v.reg;
+      document.getElementById('mv-sub').textContent = (v.serial ? 'No. ' + v.serial + ' · ' : 'No serial yet · ') + v.state;
+      var html = row('Vehicle', v.reg, 'Make / model', v.make) + row('Chassis no.', v.chassis, 'Engine no.', v.engine)
+        + row('Colour', v.colour, 'Track IMEI', v.imei);
+      if (v.civ || v.sim) { html += row('Civilian plate', v.civ, 'SIM card', v.sim); }
+      html += row('Ownership', v.owner, 'Contact', v.contact) + row('Financier', v.fin, 'Installed on', v.installed)
+        + row('Subscription', v.sub, 'Expires', v.exp);
+      document.getElementById('mv-table').innerHTML = html;
+      document.getElementById('mv-open').href = 'tracking_view.php?id=' + id;
+      var edit = document.getElementById('mv-edit');
+      if (edit) { edit.href = 'tracking_edit.php?id=' + id; edit.hidden = !v.editable; }
+      modal.classList.add('on');
+    }
+    document.querySelectorAll('.trk-fleet-row').forEach(function (tr) {
+      tr.addEventListener('click', function () { show(tr.dataset.id); });
+      tr.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); show(tr.dataset.id); } });
+    });
+
+    // Edit all: a detail's box comes alive only when ticked; the button says what will happen.
+    var form = document.getElementById('mfForm');
+    if (form) {
+      var save = document.getElementById('mfSave');
+      var ticks = form.querySelectorAll('.mf-tick');
+      function sync() {
+        var n = 0;
+        ticks.forEach(function (t) {
+          var input = form.querySelector('[name="set[' + t.name.slice(6, -1) + ']"]');
+          input.disabled = !t.checked;
+          if (t.checked) { n++; }
+        });
+        save.disabled = n === 0;
+        save.textContent = n ? 'Change ' + n + ' detail' + (n === 1 ? '' : 's') + ' on <?= count($fleetEditable) ?> vehicles' : 'Tick a detail to change';
+      }
+      ticks.forEach(function (t) { t.addEventListener('change', sync); });
+      form.querySelectorAll('.mf-input.caps').forEach(function (i) {
+        i.addEventListener('input', function () { i.value = i.value.toUpperCase(); });
+      });
+      sync();
+    }
+  })();
+  </script>
 <?php endif; ?>
 
 <?php if ($rejected): ?>
@@ -218,6 +517,11 @@ layout_back('tracking_list.php', 'Back to Tracking Installations');
       <?php $vwImeis = tracking_imeis((int)$cert['id']); ?>
       <th>Track IMEI<?= count($vwImeis) > 1 ? 's' : '' ?></th>
       <td><?= e($vwImeis ? implode(' / ', $vwImeis) : (string)$cert['imei']) ?></td></tr>
+  <?php /* Government fleets: kept on the record, never printed on the certificate. */ ?>
+  <?php if (trim((string)($cert['civilian_plate'] ?? '')) !== '' || trim((string)($cert['sim_card'] ?? '')) !== ''): ?>
+  <tr><th>Civilian plate</th><td><?= e((string)($cert['civilian_plate'] ?: '—')) ?></td>
+      <th>SIM card</th><td><?= e((string)($cert['sim_card'] ?: '—')) ?></td></tr>
+  <?php endif; ?>
   <tr><th>Ownership</th><td><?= e($cert['ownership']) ?></td>
       <th>Contact</th><td><?= e($cert['client_phone']) ?></td></tr>
   <tr>
@@ -321,10 +625,57 @@ layout_back('tracking_list.php', 'Back to Tracking Installations');
                  style="text-transform:uppercase">
         </span>
       </label>
-      <p class="hint" style="text-align:left; margin:0">The reference is checked against every
-         other installation certificate, so one payment cannot approve two.</p>
-      <button type="submit" name="action" value="approve">Approve and issue the serial number</button>
+      <?php if ($batch && count($waiting) > 1): ?>
+        <?php /* The fleet's waiting certificates, ticked by default: one payment covers them
+                 all, and unticking the ones not paid for leaves them waiting without holding
+                 up the rest. The button below changes with the ticks. */ ?>
+        <p class="hint" style="text-align:left; margin:0 0 10px">
+          <?= e((string)$batch['client_name']) ?> raised <?= count($siblings) ?> vehicles together and
+          pays once. Untick anything that was not paid for &mdash; it stays waiting.</p>
+        <table class="details trk-fleet-pick">
+          <?php foreach ($waiting as $w): ?>
+            <tr>
+              <td style="width:28px"><input type="checkbox" name="cert[]" value="<?= (int)$w['id'] ?>" checked
+                     class="fleet-tick" id="fx<?= (int)$w['id'] ?>" style="width:16px; margin:0"></td>
+              <th style="white-space:nowrap"><label for="fx<?= (int)$w['id'] ?>" style="margin:0; cursor:pointer">
+                <?= e((string)$w['reg_no']) ?></label></th>
+              <td><?= e((string)$w['imei']) ?></td>
+              <td><?= $w['renewed_from'] ? 'Renewal' : 'New' ?></td>
+              <td><a href="tracking_print.php?id=<?= (int)$w['id'] ?>" target="_blank">Preview</a></td>
+            </tr>
+          <?php endforeach; ?>
+        </table>
+        <p class="hint" style="text-align:left; margin:10px 0 0">The reference is checked against
+           every other certificate and fleet, so one payment cannot be used twice.</p>
+        <button type="submit" name="action" value="approve_batch" id="release-fleet">
+          Approve all <?= count($waiting) ?> certificates</button>
+        <p class="hint" style="text-align:left; margin:10px 0 0">
+          Or <button type="submit" name="action" value="approve"
+              style="background:none; border:0; padding:0; color:#1890D0; cursor:pointer;
+                     font:inherit; text-decoration:underline; box-shadow:none">approve only
+          <?= e((string)$cert['reg_no']) ?></button> on this payment.</p>
+      <?php else: ?>
+        <p class="hint" style="text-align:left; margin:0">The reference is checked against every
+           other installation certificate, so one payment cannot approve two.</p>
+        <button type="submit" name="action" value="approve">Approve and issue the serial number</button>
+      <?php endif; ?>
     </form>
+    <script>
+    // "Approve all 12" follows the ticks, so the button says exactly what will happen.
+    (function () {
+      var btn = document.getElementById('release-fleet');
+      if (!btn) { return; }
+      var ticks = document.querySelectorAll('.fleet-tick');
+      function count() {
+        var n = 0; ticks.forEach(function (t) { if (t.checked) { n++; } });
+        btn.textContent = n === ticks.length ? 'Approve all ' + n + ' certificates'
+                        : 'Approve ' + n + ' of ' + ticks.length + ' certificates';
+        btn.disabled = n === 0;
+      }
+      ticks.forEach(function (t) { t.addEventListener('change', count); });
+      count();
+    })();
+    </script>
 
     <form method="post" class="reject-form"
           onsubmit="return confirm('Reject this certificate and send it back?');">
@@ -342,7 +693,18 @@ layout_back('tracking_list.php', 'Back to Tracking Installations');
 <?php if ($isAdm): ?>
   <div class="row-actions" style="margin-top:22px; display:flex; flex-wrap:wrap; gap:10px">
     <?php if ($live): ?>
-      <a class="button" href="tracking_print.php?id=<?= (int)$cert['id'] ?>&amp;print=1" target="_blank">Print</a>
+      <?php
+        // Two papers, two buttons. The usual one (Settings) comes first and solid.
+        $printPlain = '<a class="button%s" href="tracking_print.php?id=' . (int)$cert['id']
+                    . '&amp;stock=plain&amp;print=1" target="_blank">Print on plain paper</a>';
+        $printBlank = '<a class="button%s" href="tracking_print.php?id=' . (int)$cert['id']
+                    . '&amp;stock=preprinted" target="_blank">Print on pre-printed certificate</a>';
+        if (setting('tracking_print_stock', 'plain') === 'preprinted') {
+            echo sprintf($printBlank, ''), "\n", sprintf($printPlain, ' secondary');
+        } else {
+            echo sprintf($printPlain, ''), "\n", sprintf($printBlank, ' secondary');
+        }
+      ?>
       <a class="button secondary" href="tracking_print.php?id=<?= (int)$cert['id'] ?>&amp;download=1">Download PDF</a>
     <?php elseif ($approved): ?>
       <a class="button secondary" href="tracking_print.php?id=<?= (int)$cert['id'] ?>" target="_blank">
@@ -361,11 +723,44 @@ layout_back('tracking_list.php', 'Back to Tracking Installations');
       <button class="button danger void-open" type="button">Void</button>
     <?php endif; ?>
 
+    <?php if (!$rejected && !in_array($cert['status'], ['voided', 'superseded'], true)): ?>
+      <a class="button secondary" href="tracking_edit.php?id=<?= (int)$cert['id'] ?>">Edit details</a>
+    <?php endif; ?>
+
     <?php if ($rejected): ?>
       <a class="button" href="tracking_new.php?reg=<?= urlencode((string)$cert['reg_no']) ?>">
         Raise it again</a>
     <?php endif; ?>
   </div>
+<?php endif; ?>
+
+<?php $amends = trk_amendments((int)$cert['id']); ?>
+<?php if ($amends): ?>
+  <?php /* Every correction: when, who, why, and each field from what to what. */ ?>
+  <details class="trk-history" style="margin-top:24px">
+    <summary>Edited <?= count($amends) ?> time<?= count($amends) === 1 ? '' : 's' ?> &mdash; see what changed and why</summary>
+    <?php foreach ($amends as $a): $d = json_decode((string)$a['details'], true) ?: []; ?>
+      <div class="trk-history-item">
+        <p><strong><?= e(fmt_date(substr((string)$a['created_at'], 0, 10))) ?> <?= e(substr((string)$a['created_at'], 11, 5)) ?></strong>
+           &middot; <?= e((string)($a['by_name'] ?: 'Unknown')) ?> &middot; <em><?= e((string)($d['reason'] ?? '')) ?></em></p>
+        <table class="details">
+          <?php foreach ((array)($d['changes'] ?? []) as $k => [$from, $to]): ?>
+            <tr><th><?= e(TRK_EDITABLE[$k] ?? $k) ?></th>
+                <?php $isDate = in_array($k, ['installed_on', 'subscription_date', 'expiry_date'], true);
+                      $show = fn($v) => $v === '' ? '(blank)' : ($isDate ? fmt_date((string)$v) : (string)$v); ?>
+                <td><?= e($show($from)) ?></td>
+                <td>&rarr; <?= e($show($to)) ?></td></tr>
+          <?php endforeach; ?>
+        </table>
+      </div>
+    <?php endforeach; ?>
+  </details>
+  <style>
+    .trk-history summary { cursor: pointer; font-weight: 600; color: #0D4F72; padding: 10px 14px;
+                           background: #fff; border: 1px solid #E4EBF2; border-radius: 10px; }
+    .trk-history-item { margin: 12px 0 0; }
+    .trk-history-item p { margin: 0 0 6px; font-size: 13.5px; color: #3D4756; }
+  </style>
 <?php endif; ?>
 
 <!-- ================= dialogs ================= -->

@@ -48,6 +48,7 @@ q('UPDATE certificates SET download_count = download_count + 1,
 audit('download_pdf', 'certificate', (int)$cert['id']);
 
 header('Content-Type: application/pdf');
+download_started();   // stops the page's spinner
 header('Content-Disposition: attachment; filename="Certificate-' . $cert['number'] . '-'
     . preg_replace('/[^A-Za-z0-9]+/', '', json_decode($cert['snapshot'], true)['vehicle']['reg_no']) . '.pdf"');
 header('Content-Length: ' . filesize($path));

@@ -412,3 +412,48 @@ main .stat-num { font-size: 29px; }
 main td.status-scheduled { color: #1E6FA8; }
 .status-pill.status-scheduled { background: #E7F1F9; color: #0D4F72; }
 .modal-head h2 .status-scheduled, #note-title .status-scheduled { color: #AFD6F0; }
+/* ------------------------------------------------------------------ busy
+ * A spinning ring on whatever button started the work, shown from the moment
+ * a form is sent until the next page arrives (or, for a download, until the
+ * file has started). Wired up in layout_bottom(); see app/views/layout.php.
+ */
+@keyframes busy-spin { to { transform: rotate(360deg); } }
+
+.is-busy {
+  position: relative;
+  pointer-events: none;          /* no second click while the first is running */
+  opacity: .85;
+  cursor: progress;
+}
+.is-busy::before {
+  content: "";
+  display: inline-block;
+  width: 1em; height: 1em;
+  margin-right: .55em;
+  vertical-align: -0.15em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: busy-spin .7s linear infinite;
+}
+
+/* The same ring, large, for "the whole page is working" - a link that loads slowly. */
+.busy-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  display: none; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, .55);
+  cursor: progress;
+}
+.busy-overlay.on { display: flex; }
+.busy-overlay::after {
+  content: "";
+  width: 46px; height: 46px;
+  border: 4px solid #0D4F72;
+  border-right-color: #8CC63F;
+  border-radius: 50%;
+  animation: busy-spin .8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-busy::before, .busy-overlay::after { animation-duration: 2.4s; }
+}

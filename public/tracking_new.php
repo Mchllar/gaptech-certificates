@@ -16,6 +16,54 @@ $errors = [];
 
 $today = date('Y-m-d');
 
+// ---------------------------------------------------------------------------
+// A WHOLE FLEET, on this same page (the same arrangement as the governor form)
+// ---------------------------------------------------------------------------
+require_once APP_DIR . '/tracking_batches.php';
+require_once APP_DIR . '/spreadsheet.php';      // CSV or Excel (.xlsx)
+
+// The spreadsheet to fill in. With ?client=NAME it comes down with that customer's
+// vehicles already in it - plate, make, chassis, engine, colour, owner, financier and the
+// unit fitted - so a fleet renewal is mostly checking, not typing.
+if (isset($_GET['template'])) {
+    $who  = mb_strtoupper(trim((string)($_GET['client'] ?? '')), 'UTF-8');
+    $rows = $who === '' ? [] : q("SELECT DISTINCT ON (regexp_replace(upper(reg_no), '[^A-Z0-9]', '', 'g'))
+                                         id, reg_no, make_model, chassis_no, engine_no, colour,
+                                         ownership, financier
+                                    FROM tracking_certificates
+                                   WHERE upper(client_name) = ? AND approval_status <> 'rejected'
+                                     AND status NOT IN ('voided', 'removed')
+                                   ORDER BY regexp_replace(upper(reg_no), '[^A-Z0-9]', '', 'g'), id DESC",
+                                 [$who])->fetchAll();
+    $name = $who !== '' ? preg_replace('/[^A-Za-z0-9]+/', '-', $who) : 'fleet';
+    header('Content-Type: text/csv; charset=UTF-8');
+    header('Content-Disposition: attachment; filename="gaptech-trackers-'
+         . strtolower(trim((string)$name, '-')) . '-' . date('Y-m-d') . '.csv"');
+    header('Cache-Control: no-store');
+    $out = fopen('php://output', 'w');
+    fwrite($out, "\xEF\xBB\xBF");            // or Excel mangles accented names
+    fputcsv($out, TRK_BATCH_COLUMNS);
+    if ($rows) {
+        foreach ($rows as $r) {
+            $units = tracking_imeis((int)$r['id']);
+            fputcsv($out, [$r['reg_no'], $r['make_model'], $r['chassis_no'], $r['engine_no'],
+                           $r['colour'], $r['ownership'], $r['financier'],
+                           (string)($units[0] ?? ''), (string)($units[1] ?? ''), '']);
+        }
+    }
+    // No example row. A made-up vehicle left in the sheet by mistake would be uploaded
+        // as a real one; the format of each column is explained on the page instead.
+    fclose($out);
+    exit;
+}
+
+$fleetAction = (string)($_POST['action'] ?? '');
+$isFleetPost = in_array($fleetAction, ['fleet_preview', 'fleet_create'], true);
+$fleet       = null;          // the preview, once there is one
+$fleetErrors = [];
+$fleetForm   = ['client_name' => '', 'client_phone' => '', 'subscription_date' => $today,
+                'term_months' => '12', 'label' => ''];
+
 $form = [
     'client_name' => '', 'client_phone' => '',
     'reg_no' => '', 'make_model' => '', 'chassis_no' => '', 'engine_no' => '',
@@ -69,7 +117,9 @@ if (!empty($_GET['reg']) && $_SERVER['REQUEST_METHOD'] !== 'POST') {
 // reveals them as the IMEIs are typed.
 $clash = [1 => null, 2 => null];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// The single-vehicle form. A fleet upload posts an action of its own and is handled
+// further down, so none of the rules below ever run on a spreadsheet.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$isFleetPost) {
     csrf_check();
     foreach ($form as $key => $default) {
         $value = trim((string)($_POST[$key] ?? $default));
@@ -84,6 +134,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // filled from the owner rather than dropped - no migration, and nothing
     // downstream has to learn a new field.
     $form['client_name'] = $form['ownership'];
+
+    // The printed name of the bank, so the message, the bonus and the certificate agree.
+    $form['financier'] = trk_financier_canonical($form['financier']);
 
     // The expiry is worked out, never typed: the chosen term, ending the day before
     // the anniversary. A one-year subscription bought on 23/09/2026 runs to 22/09/2027.
@@ -366,68 +419,10 @@ function trk_input(string $name, string $label, string $value, array $opts = [])
     echo '</label>';
 }
 
-/**
- * Extra months a financier's agreement adds to a FIRST installation.
- *
- * KCB and GAPTECH have an arrangement that gives KCB-financed vehicles three
- * months on top. It lives in the `financier_bonus` setting rather than in this
- * file, written as NAME:MONTHS, comma separated:
- *
- *     KENYA COMMERCIAL BANK:3, KCB:3
- *
- * Both spellings are listed because either may be typed. Commercial agreements
- * end, and when this one does it is a line in Settings, not a code change and a
- * deployment - clear the setting and new certificates go back to the plain term.
- *
- * Matching ignores case, punctuation and spacing, so "Kenya Commercial Bank",
- * "KENYA COMMERCIAL BANK" and "K.C.B." all find their entry.
- */
-function trk_financier_bonus(string $financier): int
-{
-    $key = static fn(string $s): string =>
-        preg_replace('/[^A-Z0-9]/', '', mb_strtoupper(trim($s)));
+// trk_financier_bonus() and trk_is_first_installation() live in app/tracking.php now,
+// shared with the fleet upload so a single installation and a fleet can never apply
+// the financier agreement differently.
 
-    $want = $key($financier);
-    if ($want === '') {
-        return 0;
-    }
-
-    foreach (explode(',', (string)setting('financier_bonus', 'KENYA COMMERCIAL BANK:3, KCB:3')) as $pair) {
-        $bits = explode(':', $pair);
-        if (count($bits) !== 2) {
-            continue;
-        }
-        if ($key($bits[0]) === $want) {
-            return max(0, min(24, (int)trim($bits[1])));   // a sane ceiling, not a free hand
-        }
-    }
-
-    return 0;
-}
-
-/**
- * Has this vehicle ever had a tracking certificate before?
- *
- * The agreement is a sign-up benefit, so it applies to a first installation only.
- * A rejected certificate does not count as a previous one - it was never issued -
- * but a voided or expired one does: the vehicle was signed up, whatever happened
- * afterwards.
- *
- * Checked on the server at save time, not taken from the form, because this
- * decides a date that gets printed.
- */
-function trk_is_first_installation(string $reg): bool
-{
-    if (trim($reg) === '') {
-        return true;
-    }
-    $seen = q("SELECT 1 FROM tracking_certificates
-                WHERE regexp_replace(upper(reg_no), '[^A-Z0-9]', '', 'g') = ?
-                  AND approval_status <> 'rejected'
-                LIMIT 1", [plate_key($reg)])->fetchColumn();
-
-    return $seen === false;
-}
 
 /**
  * The financiers to suggest.
@@ -446,7 +441,7 @@ function trk_financiers(): array
 {
     $regulars = array_filter(array_map(
         static fn($s) => mb_strtoupper(trim($s)),
-        explode(',', (string)setting('tracking_financiers', 'HFCB BANK, KENYA COMMERCIAL BANK'))));
+        explode(',', (string)setting('tracking_financiers', 'KCB BANK KENYA LTD, HFCB BANK'))));
 
     $used = [];
     try {
@@ -461,11 +456,88 @@ function trk_financiers(): array
 
     $seen = [];
     foreach (array_merge($regulars, array_map('mb_strtoupper', $used)) as $name) {
-        $name = trim((string)$name);
+        // Suggested by the name it will print, so old spellings do not reappear as options.
+        $name = trk_financier_canonical((string)$name);
         if ($name !== '') { $seen[$name] = true; }
     }
 
     return array_keys($seen);
+}
+
+// ---------------------------------------------------------------------------
+// The fleet panel's own POST handling - separate from the single form's, so neither
+// set of rules grows an "unless it is the other one" clause.
+// ---------------------------------------------------------------------------
+if ($isFleetPost) {
+    csrf_check();
+    foreach ($fleetForm as $k => $v) {
+        $fleetForm[$k] = trim((string)($_POST[$k] ?? $v));
+    }
+    $fleetForm['client_name'] = mb_strtoupper($fleetForm['client_name'], 'UTF-8');
+    if ($fleetForm['client_name'] === '') {
+        $fleetErrors[] = 'Enter the customer first - it is typed once and used for every vehicle.';
+    }
+    if ($fleetForm['client_phone'] === '' || !preg_match('/^[0-9+ ]+$/', $fleetForm['client_phone'])) {
+        $fleetErrors[] = 'Enter the customer\'s contact (digits, spaces and + only).';
+    }
+    if (strtotime($fleetForm['subscription_date']) === false) {
+        $fleetErrors[] = 'The subscription date is not a date.';
+    }
+    if (!isset(TRACKING_TERMS[(int)$fleetForm['term_months']])) {
+        $fleetForm['term_months'] = '12';
+    }
+
+    if (!$fleetErrors && $fleetAction === 'fleet_preview') {
+        $up = $_FILES['csv'] ?? null;
+        if (!$up || ($up['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            $fleetErrors[] = 'Choose the filled-in spreadsheet to upload.';
+        } elseif (($up['error'] ?? 0) !== UPLOAD_ERR_OK) {
+            $fleetErrors[] = 'That file did not arrive in one piece (error ' . (int)$up['error']
+                           . '). Try uploading it again.';
+        } else {
+            try {
+                $fleet = trk_batch_preview($fleetForm, trk_batch_rows_from_csv(spreadsheet_as_csv($up['tmp_name'], (string)($up['name'] ?? ''))));
+            } catch (Throwable $e) {
+                $fleetErrors[] = $e->getMessage();
+            }
+        }
+    }
+
+    if (!$fleetErrors && $fleetAction === 'fleet_create') {
+        // Checked again from scratch: the preview on screen may be minutes old, and the
+        // rows posted back are a list, not evidence.
+        $fleet   = trk_batch_preview($fleetForm, json_decode((string)($_POST['rows'] ?? '[]'), true) ?: []);
+        $reasons = (array)($_POST['moved_reason'] ?? []);
+        $make    = [];
+        foreach ($fleet['rows'] as $r) {
+            if ($r['verdict'] === 'blocked') {
+                continue;                       // shown, skipped, never created
+            }
+            if (!empty($r['needs_confirm'])) {
+                $r['moved_reason'] = trim((string)($reasons[(string)$r['line']] ?? ''));
+                if ($r['moved_reason'] === '') {
+                    $fleetErrors[] = 'Line ' . $r['line'] . ' (' . $r['reg_no'] . ') takes a unit off '
+                        . implode(', ', array_column($r['needs_confirm'], 'reg_no'))
+                        . '. Say why it was moved, or take the row out of the file.';
+                }
+            }
+            $make[] = $r;
+        }
+        if (!$make && !$fleetErrors) {
+            $fleetErrors[] = 'Every row in that file is blocked. Fix them and upload it again.';
+        }
+        if (!$fleetErrors) {
+            try {
+                $done = trk_batch_create($fleetForm, $make, $user, $fleetForm['label']);
+                flash(count($done['certificates']) . ' installation certificates for '
+                    . $fleetForm['client_name'] . ' sent to accounts for approval. They take their '
+                    . 'serial numbers once the payment is confirmed.');
+                redirect('tracking_view.php?id=' . (int)$done['certificates'][0]['id']);
+            } catch (Throwable $e) {
+                $fleetErrors[] = 'Could not create them: ' . $e->getMessage();
+            }
+        }
+    }
 }
 
 layout_top('New installation certificate');
@@ -491,8 +563,233 @@ layout_back('tracking_list.php', 'Back to Tracking Installations');
 date &mdash; twelve months, ending the day before the anniversary. The certificate goes to
 accounts when you save, and takes its serial number once they confirm the payment.</p></div>
 
-<?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
+<?php
+/*
+  One vehicle, or a whole fleet: two panels on this page, not two pages, exactly as on the
+  speed governor form. Nobody decides which they are doing before they start - they begin
+  with a customer and then realise it is twenty vehicles.
+*/
+$showFleet = $isFleetPost;
+?>
+<div class="trk-tabs" role="tablist">
+  <button type="button" id="tab-one" role="tab">One vehicle</button>
+  <button type="button" id="tab-fleet" role="tab">Fleet</button>
+</div>
 
+<?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
+<?php foreach ($fleetErrors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
+
+<!-- ------------------------------------------------------------------ fleet -->
+<div id="panel-fleet" <?= $showFleet ? '' : 'hidden' ?>>
+  <p class="hint" style="text-align:left">One line per vehicle in a spreadsheet. Every row is
+     checked against the same rules as a single installation and shown to you before anything
+     is saved. The whole fleet then goes to accounts, to be released on one payment.</p>
+
+  <form method="post" class="card-form" enctype="multipart/form-data" autocomplete="off">
+    <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+
+    <fieldset>
+      <legend>Customer</legend>
+      <label class="field">Customer name <span class="req">*</span>
+        <span class="field-row">
+          <input name="client_name" id="fleet-client" class="caps" maxlength="120" required
+                 value="<?= e($fleetForm['client_name']) ?>">
+        </span>
+        <span class="field-hint">The fleet owner. Used as each vehicle's ownership unless the
+          spreadsheet gives a different owner for it.</span>
+      </label>
+      <label class="field">Contact <span class="req">*</span>
+        <span class="field-row">
+          <input name="client_phone" type="tel" maxlength="20" pattern="[0-9+ ]*" required
+                 value="<?= e($fleetForm['client_phone']) ?>">
+        </span>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>Subscription</legend>
+      <label class="field">Subscription date <span class="req">*</span>
+        <span class="field-row">
+          <input type="date" name="subscription_date" required value="<?= e($fleetForm['subscription_date']) ?>">
+        </span>
+        <span class="field-hint">The same for every new installation. A vehicle that still has
+          cover starts the day after it ends instead, so no paid-for days are lost.</span>
+      </label>
+      <label class="field">Subscription period <span class="req">*</span>
+        <span class="field-row">
+          <select name="term_months">
+            <?php foreach (TRACKING_TERMS as $m => $text): ?>
+              <option value="<?= $m ?>" <?= (int)$fleetForm['term_months'] === $m ? 'selected' : '' ?>><?= e($text) ?></option>
+            <?php endforeach; ?>
+          </select>
+        </span>
+        <span class="field-hint">Financier agreements (such as KCB's extra months) are added
+          per vehicle on first installations, as on the single form.</span>
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>The spreadsheet</legend>
+      <p class="field-hint" style="margin-top:0">Download it, fill it in with one row per
+         vehicle, and upload it back. For a customer already on file it comes down with their
+         vehicles in it; otherwise it has the headings only.</p>
+      <?php /* The format of each column, here rather than as an example row in the sheet:
+               a made-up vehicle left in by mistake would be uploaded as a real one. */ ?>
+      <div class="cols-help">
+        <button type="button" class="cols-help-btn" aria-expanded="false" aria-controls="trk-cols-panel">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v5.5M12 7.5v.01"/></svg>
+          Instructions: what goes in each column</button>
+        <div class="cols-help-panel" id="trk-cols-panel" role="region" aria-label="What goes in each column">
+      <table class="details trk-cols">
+        <tr><th>Reg No *</th><td>As on the plate, e.g. KDK 259X (the space is optional)</td></tr>
+        <tr><th>Make / Model *</th><td>e.g. TOYOTA HIACE</td></tr>
+        <tr><th>Chassis No *</th><td>As on the logbook</td></tr>
+        <tr><th>Engine No *</th><td>As on the logbook</td></tr>
+        <tr><th>Colour *</th><td>e.g. WHITE</td></tr>
+        <tr><th>Ownership</th><td>Leave blank to use the customer name above</td></tr>
+        <tr><th>Financier</th><td>The bank or lender, or blank if none</td></tr>
+        <tr><th>IMEI *</th><td>10 to 17 digits. In Excel, set this column to <strong>Text</strong>
+            first, or long numbers turn into "8.6E+14" and lose their digits</td></tr>
+        <tr><th>Second Unit</th><td>Only if a second unit is fitted; blank otherwise</td></tr>
+        <tr><th>Installed On</th><td>The fitting date, e.g. 2026-11-24. Blank means the subscription date</td></tr>
+      </table>
+      <p class="field-hint" style="margin:8px 0 0">* required. Rows that break a rule are
+         shown and skipped in the preview, never saved.</p>
+      <p class="field-hint" style="margin:8px 0 0"><strong>Government (GK) fleet sheets</strong>
+         can be uploaded as they are: <em>GK Plate</em> prints as the Reg No (the
+         <em>Civilian Plate</em> if there is no GK plate), <em>Make</em> and <em>Model</em> are
+         joined, <em>Customer</em> and <em>User</em> become the ownership, and the
+         <em>Civilian Plate</em> and <em>SIM Card</em> are kept on the record without being printed.
+         The <em>No</em> column is ignored.</p>
+        </div>
+      </div>
+      <style>
+        .cols-help { position: relative; display: inline-block; margin: 0 0 16px; }
+        .cols-help .cols-help-btn { display: inline-flex; align-items: center; gap: 6px; padding: 0; margin: 0;
+          background: none; border: 0; box-shadow: none; color: #0D4F72; font: inherit; font-size: 13.5px;
+          font-weight: 600; cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
+        .cols-help .cols-help-panel { display: none; position: absolute; z-index: 60; left: 0; top: calc(100% + 8px);
+          width: min(760px, calc(100vw - 48px)); padding: 12px; background: #fff; border: 1px solid #E4EBF2;
+          border-radius: 12px; box-shadow: 0 18px 40px -10px rgba(13,79,114,.30); }
+        /* A bridge over the 8px gap, so moving the pointer down onto the panel does not close it. */
+        .cols-help .cols-help-panel::before { content: ""; position: absolute; left: 0; right: 0; top: -9px; height: 9px; }
+        .cols-help:hover .cols-help-panel, .cols-help:focus-within .cols-help-panel,
+        .cols-help.is-open .cols-help-panel { display: block; }
+        /* The table fits the panel: fixed layout, and long explanations wrap. */
+        .cols-help .trk-cols { margin: 0; font-size: 13px; width: 100%; table-layout: fixed; box-shadow: none; }
+        .cols-help .trk-cols td { white-space: normal; overflow-wrap: anywhere; }
+        .cols-help .trk-cols th { width: 130px; white-space: nowrap; }
+      </style>
+      <script>
+      // Hover is not available on a phone or tablet: a tap opens and closes it, Escape closes it.
+      (function () {
+        var box = document.currentScript.previousElementSibling.previousElementSibling;
+        var btn = box.querySelector('.cols-help-btn');
+        btn.addEventListener('click', function () {
+          var open = box.classList.toggle('is-open');
+          btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        document.addEventListener('click', function (e) {
+          if (!box.contains(e.target)) { box.classList.remove('is-open'); btn.setAttribute('aria-expanded', 'false'); }
+        });
+        document.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') { box.classList.remove('is-open'); btn.setAttribute('aria-expanded', 'false'); btn.blur(); }
+        });
+      })();
+      </script>
+      <p style="margin:0 0 16px">
+        <a class="button secondary" id="fleet-template" href="tracking_new.php?template=1">Download the spreadsheet</a>
+      </p>
+      <label class="field">The filled-in file <span class="req">*</span>
+        <span class="field-row">
+          <input type="file" name="csv" accept=".csv,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+        </span>
+        <span class="field-hint">An Excel file (.xlsx) or a CSV, straight from Excel. Only the first sheet is read.</span>
+      </label>
+      <label class="field">Name for this fleet
+        <span class="field-row">
+          <input name="label" maxlength="80" value="<?= e($fleetForm['label']) ?>"
+                 placeholder="e.g. November intake">
+        </span>
+      </label>
+      <button class="button" type="submit" name="action" value="fleet_preview">Check the file</button>
+    </fieldset>
+  </form>
+
+  <?php if ($fleet !== null): $c = $fleet['counts']; ?>
+    <?php /* The preview is a dialog: it is one decision - do these rows go in or not. */ ?>
+    <button type="button" id="preview-opener" data-modal="#m-preview" hidden></button>
+    <div class="gt-modal" id="m-preview">
+      <form class="gt-box" method="post" style="width:min(1060px, calc(100vw - 32px)); max-width:none">
+        <h3>What is in that file</h3>
+        <p class="gt-hint"><?= (int)$c['new'] ?> new installations &middot;
+           <?= (int)$c['renewal'] ?> renewals &middot;
+           <?= (int)$c['moved'] ?> with a unit moved from another vehicle &middot;
+           <?= (int)$c['blocked'] ?> that cannot be created.
+           <strong>Nothing has been saved yet.</strong> Everything that can be created goes to
+           accounts for approval when you click Create.</p>
+
+        <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+        <input type="hidden" name="rows" value="<?= e(json_encode($fleet['rows'])) ?>">
+        <?php foreach ($fleetForm as $k => $v): ?>
+          <input type="hidden" name="<?= e($k) ?>" value="<?= e($v) ?>">
+        <?php endforeach; ?>
+
+        <div style="max-height:52vh; overflow:auto; margin:0 0 14px">
+          <table class="list">
+            <thead><tr><th>Line</th><th>Registration</th><th>IMEI</th><th></th>
+                       <th>Cover</th><th style="min-width:260px">Details</th></tr></thead>
+            <tbody>
+            <?php foreach ($fleet['rows'] as $r):
+              $badge = ['new' => 'New', 'renewal' => 'Renewal', 'moved' => 'Moved unit',
+                        'blocked' => 'Cannot create'][$r['verdict']]; ?>
+              <tr<?= $r['verdict'] === 'blocked' ? ' style="opacity:.6"' : '' ?>>
+                <td><?= (int)$r['line'] ?></td>
+                <td><strong><?= e($r['reg_no'] ?: '-') ?></strong><br>
+                    <span class="field-hint"><?= e($r['make_model']) ?></span></td>
+                <td><?= e($r['imei'] ?: '-') ?><?= $r['imei_2'] !== '' ? '<br>' . e($r['imei_2']) : '' ?></td>
+                <td><span class="status status-<?= e($r['verdict']) ?>"><?= e($badge) ?></span></td>
+                <td style="white-space:nowrap"><?php if ($r['verdict'] !== 'blocked'): ?>
+                    <?= e(fmt_date($r['subscription_date'])) ?><br>
+                    <span class="field-hint">to <?= e(fmt_date($r['expiry_date'])) ?></span><?php endif; ?></td>
+                <?php /* Always says what happens to the row, then anything worth knowing. */
+                  $lead = ['new' => 'New installation.',
+                            'renewal' => 'Renewal.',
+                            'moved' => 'Unit moved from another vehicle.',
+                            'blocked' => 'Not created:'][$r['verdict']]; ?>
+                <td><strong><?= e($lead) ?></strong><?= $r['notes'] ? '<br>' . e(implode(' ', $r['notes'])) : '' ?>
+                  <?php if (!empty($r['needs_confirm']) && $r['verdict'] !== 'blocked'): ?>
+                    <label class="field" style="margin:8px 0 0">Why was it moved? <span class="req">*</span>
+                      <span class="field-row">
+                        <input name="moved_reason[<?= (int)$r['line'] ?>]" maxlength="200" required
+                               placeholder="e.g. Unit taken off KAB 123C when it was sold">
+                      </span>
+                      <span class="field-hint">Recorded on that vehicle's certificate, which is closed.</span>
+                    </label>
+                  <?php endif; ?>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="gt-foot">
+          <button type="button" class="button secondary gt-close">Cancel</button>
+          <button type="submit" name="action" value="fleet_create" class="button"
+                  <?= $fleet['ok'] === 0 ? 'disabled' : '' ?>>
+            Create <?= (int)$fleet['ok'] ?> certificate<?= $fleet['ok'] === 1 ? '' : 's' ?>
+          </button>
+        </div>
+      </form>
+    </div>
+    <?php require_once APP_DIR . '/views/modal_base.php'; ?>
+  <?php endif; ?>
+</div>
+
+<!-- ----------------------------------------------------------- one vehicle -->
+<div id="panel-one" <?= $showFleet ? 'hidden' : '' ?>>
 <form method="post" class="card-form" autocomplete="off">
   <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
 
@@ -658,6 +955,57 @@ accounts when you save, and takes its serial number once they confirm the paymen
 
   <button type="submit">Save certificate</button>
 </form>
+</div><!-- /panel-one -->
+
+<style>
+  .trk-tabs { display: flex; gap: 8px; margin: 0 0 12px; flex-wrap: wrap; }
+  .trk-tabs button { padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer;
+                     border: 1px solid #D3DCE4; background: #fff; color: #0D4F72; box-shadow: none; }
+  .trk-tabs button[aria-selected="true"] { background: #0D4F72; border-color: #0D4F72; color: #fff; }
+  #panel-fleet[hidden], #panel-one[hidden] { display: none !important; }
+  /* What each row of the fleet preview will become. */
+  #m-preview .status { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px;
+                       font-weight: 600; white-space: nowrap; }
+  #m-preview .status-new     { background: #EDF6E3; color: #3F6B12; }
+  #m-preview .status-renewal { background: #E6F0F7; color: #0D4F72; }
+  #m-preview .status-moved   { background: #FFF4E0; color: #8A5A00; }
+  #m-preview .status-blocked { background: #FDECEC; color: #A51A1A; }
+</style>
+<script>
+// One vehicle / Fleet. The customer typed in one panel follows to the other.
+(function () {
+  var one = document.getElementById('panel-one'), fleet = document.getElementById('panel-fleet');
+  var tOne = document.getElementById('tab-one'), tFleet = document.getElementById('tab-fleet');
+  if (!one || !fleet || !tOne || !tFleet) { return; }
+  function paint(onFleet) {
+    fleet.hidden = !onFleet; one.hidden = onFleet;
+    tFleet.setAttribute('aria-selected', onFleet ? 'true' : 'false');
+    tOne.setAttribute('aria-selected', onFleet ? 'false' : 'true');
+  }
+  function carry(fromOwner, fromPhone, toOwner, toPhone) {
+    if (fromOwner && toOwner && !toOwner.value) { toOwner.value = fromOwner.value; }
+    if (fromPhone && toPhone && !toPhone.value) { toPhone.value = fromPhone.value; }
+  }
+  var oneOwner = one.querySelector('[name=ownership]'), onePhone = one.querySelector('[name=client_phone]');
+  var flOwner = fleet.querySelector('[name=client_name]'), flPhone = fleet.querySelector('[name=client_phone]');
+  tFleet.addEventListener('click', function () { carry(oneOwner, onePhone, flOwner, flPhone); paint(true); });
+  tOne.addEventListener('click', function () { carry(flOwner, flPhone, oneOwner, onePhone); paint(false); });
+  paint(!fleet.hidden);
+
+  // The template link carries the customer, so their vehicles come down filled in.
+  var link = document.getElementById('fleet-template');
+  function point() {
+    var v = (flOwner.value || '').trim();
+    link.href = 'tracking_new.php?template=1' + (v ? '&client=' + encodeURIComponent(v) : '');
+    link.textContent = v ? 'Download the spreadsheet (with ' + v + '\'s vehicles, if any)' : 'Download the spreadsheet';
+  }
+  flOwner.addEventListener('input', point); point();
+
+  // The preview opens itself when there is one.
+  var opener = document.getElementById('preview-opener');
+  if (opener) { setTimeout(function () { opener.click(); }, 0); }
+})();
+</script>
 
 <script>
 // Type in capitals: the value itself is stored in capitals, not only shown that way.

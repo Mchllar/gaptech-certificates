@@ -11,7 +11,8 @@
  */
 require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/certificates.php';
-require_once APP_DIR . '/batches.php';          // the bulk functions
+require_once APP_DIR . '/batches.php';
+require_once APP_DIR . '/spreadsheet.php';      // CSV or Excel (.xlsx)          // the bulk functions
 require_once APP_DIR . '/views/mode_switch.php'; // one vehicle / a whole fleet
 require APP_DIR . '/views/layout.php';
 
@@ -50,10 +51,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = 'Choose the filled-in spreadsheet to upload.';
         } elseif (($up['error'] ?? 0) !== UPLOAD_ERR_OK) {
             $errors[] = 'That file did not arrive in one piece (error ' . (int)$up['error']
-                      . '). Try again, or save it as CSV first if it is an Excel file.';
+                      . '). Try uploading it again.';
         } else {
             try {
-                $rows    = batch_rows_from_csv($up['tmp_name']);
+                $rows    = batch_rows_from_csv(spreadsheet_as_csv($up['tmp_name'], (string)($up['name'] ?? '')));
                 $preview = batch_preview($form, $rows, $form['issue_date']);
             } catch (Throwable $e) {
                 $errors[] = $e->getMessage();
@@ -153,7 +154,7 @@ accounts as a single payment.</p>
     <legend>2. The spreadsheet</legend>
 
     <p class="field-hint" style="margin-top:0">
-      Download it, fill it in, upload it back. Choosing an existing customer brings their
+      Download it, fill it in, upload it back (as .xlsx or .csv). Choosing an existing customer brings their
       vehicles down already filled in, so a renewal only needs the fitting dates.
     </p>
 
@@ -163,9 +164,9 @@ accounts as a single payment.</p>
 
     <label class="field">The filled-in file <span class="req">*</span>
       <span class="field-row">
-        <input type="file" name="csv" accept=".csv,text/csv,application/vnd.ms-excel">
+        <input type="file" name="csv" accept=".csv,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
       </span>
-      <span class="field-hint">Save it as CSV from Excel &mdash; File, Save As, "CSV (Comma delimited)".</span>
+      <span class="field-hint">An Excel file (.xlsx) or a CSV, straight from Excel. Only the first sheet is read.</span>
     </label>
 
     <label class="field">Issue date <span class="req">*</span>

@@ -46,6 +46,11 @@ if ($search !== '') {
     // punctuation stops mattering on either.
     $where[] = "(regexp_replace(upper(t.reg_no), '[^A-Z0-9]', '', 'g') LIKE ?
                  OR t.client_name ILIKE ? OR CAST(t.number AS text) LIKE ?
+                 -- a government vehicle's civilian plate, and the tracker's SIM card
+                 OR regexp_replace(upper(t.civilian_plate), '[^A-Z0-9]', '', 'g') LIKE ?
+                 OR regexp_replace(t.sim_card, '[^0-9]', '', 'g') LIKE ?
+                 -- the number pre-printed on the blank it went onto, if it had one
+                 OR upper(t.stock_serial) LIKE ?
                  OR EXISTS (SELECT 1 FROM tracking_imeis i
                              WHERE i.cert_id = t.id
                                AND regexp_replace(upper(i.imei), '[^A-Z0-9]', '', 'g')
@@ -53,6 +58,10 @@ if ($search !== '') {
     $params[] = '%' . plate_key($search) . '%';
     $params[] = '%' . $search . '%';
     $params[] = '%' . $search . '%';
+    $params[] = '%' . plate_key($search) . '%';
+    $sim = preg_replace('/[^0-9]/', '', $search);
+    $params[] = $sim !== '' ? '%' . $sim . '%' : '-no-sim-';
+    $params[] = '%' . strtoupper($search) . '%';
     $params[] = '%' . strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $search)) . '%';
 }
 
@@ -182,11 +191,32 @@ layout_top('Installations');
   <?php endforeach; ?>
 </div>
 
+<?php
+  // Tick boxes for downloading several at once - administrators only, and only
+  // valid certificates, the same rules as tracking_print.php. download_bulk.php
+  // checks again; this just keeps the list honest.
+  $anyBulk = $isAdm && (bool)array_filter($rows, 'tracking_is_releasable');
+?>
+<?php if ($anyBulk): ?>
+<form method="post" action="download_bulk.php" id="bulk-dl" class="bulk-bar" data-download>
+  <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+  <input type="hidden" name="kind" value="tracking">
+  <input type="hidden" name="back" value="<?= e(trk_link()) ?>">
+  <button type="submit" class="button" id="bulk-dl-btn" disabled>Download selected</button>
+  <span class="field-hint" id="bulk-dl-count">Tick the certificates to download as one .zip</span>
+</form>
+<?php endif; ?>
+
 <table>
-  <tr><th>Serial</th><th>Vehicle</th><th>Customer</th><th>IMEI</th>
+  <tr><?php if ($anyBulk): ?><th style="width:28px"><input type="checkbox" id="bulk-all"
+        title="Select all on this page" style="width:16px;margin:0"></th><?php endif; ?>
+      <th>Serial</th><th>Vehicle</th><th>Customer</th><th>IMEI</th>
       <th>Subscribed</th><th>Expires</th><th>Status</th><th></th></tr>
   <?php foreach ($rows as $row): $st = tracking_status($row); ?>
   <tr>
+    <?php if ($anyBulk): ?><td><?php if (tracking_is_releasable($row)): ?><input type="checkbox"
+        class="bulk-pick" form="bulk-dl" name="ids[]" value="<?= (int)$row['id'] ?>"
+        style="width:16px;margin:0"><?php endif; ?></td><?php endif; ?>
     <td><?= e(tracking_label($row)) ?></td>
     <td><?= e($row['reg_no']) ?></td>
     <td><?= e($row['client_name']) ?></td>
@@ -202,6 +232,7 @@ layout_top('Installations');
     <tr><td colspan="8">Nothing matches those filters.</td></tr>
   <?php endif; ?>
 </table>
+<?php require APP_DIR . '/views/bulk_download.php'; ?>
 
 <div class="pager">
   <form method="get" class="per-page">

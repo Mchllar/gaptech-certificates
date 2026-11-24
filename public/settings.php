@@ -14,6 +14,9 @@ $fields = [
     'kebs_permit' => 'KEBS permit', 'default_model' => 'Default governor model',
     'default_speed' => 'Default set speed (km/h)', 'last_cert_number' => 'Last certificate number used',
     'default_technician' => 'Default technician / agent',
+    // Tracking certificates: how each bank is printed, and which agreements add months.
+    'financier_names' => 'Financier names (PRINTED NAME = spelling | spelling ; next bank)',
+    'financier_bonus' => 'Financier extra months on first installation (NAME:MONTHS, ...)',
 ];
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -37,6 +40,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             set_setting($key, '');
         }
     }
+    // Tracking certificates: the usual paper, and the printer's nudge in mm.
+    set_setting('tracking_print_stock',
+        ($_POST['tracking_print_stock'] ?? '') === 'preprinted' ? 'preprinted' : 'plain');
+    foreach (['print_offset_x', 'print_offset_y'] as $key) {
+        $mmv = (float)str_replace(',', '.', (string)($_POST[$key] ?? '0'));
+        set_setting($key, (string)max(-15, min(15, round($mmv, 1))));   // more than 15mm is a wrong setting, not a drift
+    }
+    $pt = (float)str_replace(',', '.', (string)($_POST['preprinted_font_pt'] ?? '13'));
+    set_setting('preprinted_font_pt', (string)max(7, min(18, round($pt, 1))));
+    set_setting('tracking_print_stamp', !empty($_POST['tracking_print_stamp']) ? '1' : '0');
+    set_setting('tracking_print_signature', !empty($_POST['tracking_print_signature']) ? '1' : '0');
     audit('update_settings', 'settings');
     flash('Settings saved. New certificates will use them; certificates already issued are unchanged.');
     redirect('settings.php');
@@ -97,6 +111,40 @@ they were issued with.</p>
         </div>
       <?php endforeach; ?>
     </div>
+  </fieldset>
+  <fieldset>
+    <legend>Printing tracking certificates</legend>
+    <label>Usual paper
+      <select name="tracking_print_stock">
+        <option value="plain" <?= setting('tracking_print_stock', 'plain') !== 'preprinted' ? 'selected' : '' ?>>
+          Plain paper &mdash; the whole certificate prints</option>
+        <option value="preprinted" <?= setting('tracking_print_stock', 'plain') === 'preprinted' ? 'selected' : '' ?>>
+          Pre-printed certificates &mdash; only the entries print</option>
+      </select>
+    </label>
+    <p class="hint" style="text-align:left">Both print buttons are always on the certificate;
+       this only decides which comes first.</p>
+    <label class="inline" style="display:flex; gap:8px; align-items:center">
+      <input type="checkbox" name="tracking_print_stamp" value="1" style="width:16px; margin:0"
+             <?= setting('tracking_print_stamp', '1') === '1' ? 'checked' : '' ?>>
+      Print the stamp (it can still be ticked or unticked on each print; a PDF always has it)</label>
+    <label class="inline" style="display:flex; gap:8px; align-items:center">
+      <input type="checkbox" name="tracking_print_signature" value="1" style="width:16px; margin:0"
+             <?= setting('tracking_print_signature', '1') === '1' ? 'checked' : '' ?>>
+      Print the signature (the same: changeable on each print; a PDF always has it)</label>
+    <label>Size of the entries on a pre-printed certificate (points, as in Word)
+      <input name="preprinted_font_pt" type="number" step="0.5" min="7" max="18"
+             value="<?= e(setting('preprinted_font_pt', '13')) ?>"></label>
+    <p class="hint" style="text-align:left">If the entries land off the boxes on a pre-printed
+       certificate, print the <a href="tracking_print.php?align=1" target="_blank">alignment test</a>
+       onto a spoiled blank and read the rulers. Millimetres; use a minus for left or up. It applies
+       to every pre-printed print from now on.</p>
+    <label>Move right by (mm)
+      <input name="print_offset_x" type="number" step="0.5" min="-15" max="15"
+             value="<?= e(setting('print_offset_x', '0')) ?>"></label>
+    <label>Move down by (mm)
+      <input name="print_offset_y" type="number" step="0.5" min="-15" max="15"
+             value="<?= e(setting('print_offset_y', '0')) ?>"></label>
   </fieldset>
   <button type="submit">Save settings</button>
 </form>
