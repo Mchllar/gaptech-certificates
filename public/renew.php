@@ -124,16 +124,18 @@ $newId = is_array($new) ? (int)$new['id'] : (int)$new;
 // filling in the field that approval checks.
 $note = trim((string)($_POST['payment_note'] ?? ''));
 $lpo  = trim((string)($_POST['lpo_no'] ?? ''));
+$contract = trim((string)($_POST['contract_no'] ?? ''));
 
-if ($note !== '' || $lpo !== '') {
-    q('UPDATE certificates SET payment_note = ?, lpo_no = ? WHERE id = ?',
-      [$note, $lpo, $newId]);
+if ($note !== '' || $lpo !== '' || $contract !== '') {
+    q('UPDATE certificates SET payment_note = ?, lpo_no = ?, contract_no = ? WHERE id = ?',
+      [$note, $lpo, $contract, $newId]);
 }
 
 audit('renew_certificate', 'certificate', $newId, [
     'renewed_from' => $id,
     'note_given'   => $note !== '',
     'lpo_no'       => $lpo,
+    'contract_no'  => $contract,
 ]);
 
 // Say when the new cover starts, not just when it ends. Somebody renewing a month

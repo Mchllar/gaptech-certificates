@@ -52,9 +52,11 @@ if ($search !== '') {
     // were.
     $key = preg_replace('/[^A-Za-z0-9]/', '', $search);
 
-    $clauses  = ['cl.name ILIKE ?', 'CAST(c.number AS text) LIKE ?'];
+    // stock_serial: the Cert No. on the pre-printed blank, when it differed.
+    $clauses  = ['cl.name ILIKE ?', 'CAST(c.number AS text) LIKE ?', 'upper(c.stock_serial) LIKE ?'];
     $params[] = $like;
     $params[] = $like;
+    $params[] = '%' . strtoupper($search) . '%';
 
     // Skipped when the search is only punctuation: '%%' would match every row
     // and turn a nonsense search into "everything".

@@ -59,7 +59,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             (string)($_POST['payment_ref'] ?? ''),
                             trim((string)($_POST['payment_note'] ?? '')),
                             trim((string)($_POST['lpo_no'] ?? '')),
-                            $only);
+                            $only,
+                            trim((string)($_POST['contract_no'] ?? '')));
                 $notes[] = $done['approved'] . ' certificate'
                     . ($done['approved'] === 1 ? '' : 's') . ' released and numbered.'
                     . ($done['still_pending']
@@ -174,13 +175,14 @@ else:
 <?php if ($batch['payments']): ?>
   <h2 style="margin-top:28px">Payments</h2>
   <table class="list">
-    <thead><tr><th>Reference</th><th>LPO</th><th>Certificates</th><th>Taken by</th><th>When</th></tr></thead>
+    <thead><tr><th>Reference</th><th>LPO</th><th>Contract</th><th>Certificates</th><th>Taken by</th><th>When</th></tr></thead>
     <tbody>
     <?php foreach ($batch['payments'] as $p): ?>
       <tr>
         <td><?= e($p['payment_ref'] ?: '-') ?><?php if ($p['note']): ?>
             <br><span class="field-hint"><?= e($p['note']) ?></span><?php endif; ?></td>
         <td><?= e($p['lpo_no'] ?: '-') ?></td>
+        <td><?= e(($p['contract_no'] ?? '') ?: '-') ?></td>
         <td><?= (int)$p['certificates'] ?></td>
         <td><?= e((string)$p['received_by_name']) ?></td>
         <td><?= e(fmt_date((string)$p['received_at'])) ?></td>
@@ -217,6 +219,15 @@ else:
         </span>
         <span class="field-hint">When the client is paying later. An LPO may cover more
           than one batch, so it is not checked for reuse.</span>
+      </label>
+
+      <label class="field">or contract number
+        <span class="field-row">
+          <input name="contract_no" maxlength="60" style="text-transform:uppercase"
+                 value="<?= e($_POST['contract_no'] ?? '') ?>">
+        </span>
+        <span class="field-hint">When the client is on a contract. One contract covers many
+          vehicles, so it is not checked for reuse either.</span>
       </label>
 
       <label class="field">Note

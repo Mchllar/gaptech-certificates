@@ -30,10 +30,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $done = approve_certificate($target, $user,
                     (string)($_POST['payment_ref'] ?? ''),
                     trim((string)($_POST['payment_note'] ?? '')),
-                    trim((string)($_POST['lpo_no'] ?? '')));
+                    trim((string)($_POST['lpo_no'] ?? '')),
+                    trim((string)($_POST['contract_no'] ?? '')));
                 flash('Certificate ' . $done['number'] . ' issued'
                     . (trim((string)$done['payment_ref']) === '' && trim((string)$done['lpo_no']) !== ''
                         ? ' against LPO ' . $done['lpo_no'] : '')
+                    . (trim((string)$done['payment_ref']) === '' && trim((string)($done['contract_no'] ?? '')) !== ''
+                        ? ' against contract ' . $done['contract_no'] : '')
                     . '. The client can download it now.');
                 redirect('approvals.php');
             } elseif ($action === 'reject') {
@@ -70,8 +73,8 @@ layout_top('Approvals');
 ?>
 <h1>Certificates awaiting approval <span class="chip-count"><?= count($pending) ?></span></h1>
 <p class="hint">An administrator raises a renewal; accounts releases it. A certificate
-   cannot be printed or downloaded until they do. Release it on a payment, or on an
-   LPO when the client is paying later.</p>
+   cannot be printed or downloaded until they do. Release it on a payment, on an
+   LPO when the client is paying later, or on the client's contract number.</p>
 
 <?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
 
@@ -106,7 +109,8 @@ layout_top('Approvals');
         <legend>Release this certificate</legend>
 
         <?php if (trim((string)($cert['payment_note'] ?? '')) !== ''
-               || trim((string)($cert['lpo_no'] ?? '')) !== ''): ?>
+               || trim((string)($cert['lpo_no'] ?? '')) !== ''
+               || trim((string)($cert['contract_no'] ?? '')) !== ''): ?>
           <p class="hint" style="text-align:left; margin:0 0 12px; color:#8A5A00">
             The administrator recorded this when they raised it. Check it before
             releasing &mdash; nobody in accounts has looked at it yet.</p>
@@ -139,10 +143,19 @@ layout_top('Approvals');
           </span>
         </label>
 
-        <p class="hint" style="text-align:left; margin:0">All three are optional.
+        <label class="field">Contract number
+          <span class="field-row">
+            <input name="contract_no" id="contract" maxlength="60"
+                   value="<?= e($_POST['contract_no'] ?? $cert['contract_no'] ?? '') ?>"
+                   placeholder="If the client is on a contract"
+                   style="text-transform:uppercase">
+          </span>
+        </label>
+
+        <p class="hint" style="text-align:left; margin:0">Fill in at least one.
            A payment reference is checked against every other certificate, so one
-           payment cannot release two. An LPO is not &mdash; one LPO routinely covers a
-           whole fleet.</p>
+           payment cannot release two. An LPO or a contract number is not &mdash; one
+           routinely covers a whole fleet.</p>
       </fieldset>
 
       <button type="submit" name="action" value="approve">Release the certificate</button>
@@ -201,8 +214,8 @@ layout_top('Approvals');
   if (!note || !ref) { return; }
   function suggest() {
     if (ref.value.trim() !== '') { return; }          // never overwrite a typed value
-    var m = note.value.toUpperCase().match(/\b([A-Z0-9]{10})\b/);
-    if (m) { ref.value = m[1]; }
+    var r = window.gtPaymentRef ? window.gtPaymentRef(note.value) : '';   // app/views/layout.php
+    if (r) { ref.value = r; }
   }
   note.addEventListener('input', suggest);
   note.addEventListener('paste', function () { setTimeout(suggest, 50); });

@@ -51,6 +51,12 @@ if (!function_exists('extract_payment_ref')) {
     /** Pull the M-Pesa or bank reference out of a pasted confirmation message. */
     function extract_payment_ref(string $text): string
     {
+        // Pesalink has no transaction code; the code at the end of the receipt link
+        // is the one thing unique to the payment: .../r1=lvSHCkKf -> PL-LVSHCKKF.
+        // Keep in step with window.gtPaymentRef in app/views/layout.php.
+        if (preg_match('~pesalink\.co\.ke/\S*?r\d*=([A-Za-z0-9]{5,20})~i', $text, $pl)) {
+            return 'PL-' . strtoupper($pl[1]);
+        }
         $up = strtoupper($text);
         $patterns = [
             '/M[-\s]?PESA\s*REF[:.\s]*([A-Z0-9]{8,15})/',

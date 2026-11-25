@@ -966,8 +966,8 @@ layout_back('tracking_list.php', 'Back to Tracking Installations');
   if (!note || !ref) { return; }
   function suggest() {
     if (ref.value.trim() !== '') { return; }
-    var m = note.value.toUpperCase().match(/\b([A-Z0-9]{10})\b/);
-    if (m) { ref.value = m[1]; }
+    var r = window.gtPaymentRef ? window.gtPaymentRef(note.value) : '';   // app/views/layout.php
+    if (r) { ref.value = r; }
   }
   note.addEventListener('input', suggest);
   note.addEventListener('paste', function () { setTimeout(suggest, 50); });

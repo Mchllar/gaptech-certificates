@@ -66,7 +66,7 @@ function val($x1, $x2, $y, $size, $cls, $font, $text, $lift = 6, $style = '')
 {
     $s = fit($text, $font, $x2 - $x1 - 8, $size);
     $top = round($y - $s - $lift, 1);
-    return '<div class="t ' . $cls . '" style="left:' . $x1 . 'px; width:' . ($x2 - $x1)
+    return '<div class="t entry ' . $cls . '" style="left:' . $x1 . 'px; width:' . ($x2 - $x1)
         . 'px; text-align:center; top:' . $top . 'px; font-size:' . $s . 'px; ' . $style . '">'
         . e($text) . '</div>';
 }
@@ -75,23 +75,29 @@ function val($x1, $x2, $y, $size, $cls, $font, $text, $lift = 6, $style = '')
 function certno($x, $cy, $h)
 {
     global $certno_img;
-    return '<img class="img" src="' . $certno_img . '" style="left:' . $x . 'px; top:' . ($cy - $h / 2)
+    return '<img class="img entry certno" src="' . $certno_img . '" style="left:' . $x . 'px; top:' . ($cy - $h / 2)
         . 'px; height:' . $h . 'px;">';
 }
 
-function signature($x, $y, $w, $h)
+/**
+ * The signature, inside the box from $top to $bottom.
+ *
+ * The box is the free space for it: from just under the row above down to just
+ * above the label below the signing line. The image keeps its proportions and sits
+ * on the bottom of the box, so it crosses the line the way a pen signature does
+ * without reaching up into the row above. (It used to be drawn twice the height of
+ * its slot and pushed upwards, which put it over the dates and the dealer name.)
+ */
+function signature($x, $top, $w, $bottom)
 {
     global $d;
+    $h = $bottom - $top;
     if (!empty($d['signatory']['signature_image'])) {
-        // object-fit keeps the signature's own proportions: forced into the wide, short box
-        // it was squashed flat. The box is also allowed twice as tall, reaching up over the
-        // line the way a pen signature does, so a tall signature is not shrunk to nothing.
-        $tall = round($h * 2);
-        return '<img class="img" src="' . e($d['signatory']['signature_image']) . '" style="left:' . $x
-            . 'px; top:' . round($y - ($tall - $h) * 0.6) . 'px; width:' . $w . 'px; height:' . $tall
-            . 'px; object-fit:contain; object-position:center;">';
+        return '<img class="img entry sig-img" src="' . e($d['signatory']['signature_image']) . '" style="left:' . $x
+            . 'px; top:' . $top . 'px; width:' . $w . 'px; height:' . $h
+            . 'px; object-fit:contain; object-position:center bottom;">';
     }
-    return '<div class="sigph" style="left:' . $x . 'px; top:' . $y . 'px; width:' . $w . 'px; height:'
+    return '<div class="sigph sig-img" style="left:' . $x . 'px; top:' . $top . 'px; width:' . $w . 'px; height:'
         . $h . 'px; line-height:' . $h . 'px;">[signature]</div>';
 }
 

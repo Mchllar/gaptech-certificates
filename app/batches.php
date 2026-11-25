@@ -231,13 +231,20 @@ function batch_preview(array $client, array $rows, string $issueDate = ''): arra
         $r['notes']   = [];
         $r['needs_confirm'] = false;
 
+        // Not registered yet: the chassis stands in for the plate, as it does on
+        // a single certificate. The registration is added to the certificate later.
+        if (batch_key($r['reg_no']) === '' && batch_key($r['chassis_no']) !== '') {
+            $r['reg_no']  = strtoupper(trim((string)$r['chassis_no']));
+            $r['notes'][] = 'No registration yet - the chassis number is used until it has one.';
+        }
+
         $regKey = batch_key($r['reg_no']);
         $serKey = batch_key($r['serial_no']);
 
         // -------------------------------------------------- cannot be created
         if ($regKey === '') {
             $r['verdict'] = 'blocked';
-            $r['notes'][] = 'No registration number.';
+            $r['notes'][] = 'No registration or chassis number.';
         } elseif (isset($seenReg[$regKey])) {
             $r['verdict'] = 'blocked';
             $r['notes'][] = 'Registration repeated - also on line ' . $seenReg[$regKey] . '.';
@@ -530,14 +537,15 @@ function payment_ref_in_use(string $ref): ?string
  * tidily instead of in whatever order the file happened to be in.
  */
 function batch_approve(int $batchId, array $user, string $ref, string $note,
-                       string $lpo = '', ?array $only = null): array
+                       string $lpo = '', ?array $only = null, string $contract = ''): array
 {
     $ref = trim($ref);
     $lpo = trim($lpo);
+    $contract = trim($contract);   // like an LPO: one contract, many vehicles
     // The same floor a single certificate has: say what you are releasing this
     // on. A reference, an LPO, or the payment message pasted in - but not nothing.
-    if ($ref === '' && $lpo === '' && trim($note) === '') {
-        throw new RuntimeException('Record the payment reference, the LPO number, or paste '
+    if ($ref === '' && $lpo === '' && $contract === '' && trim($note) === '') {
+        throw new RuntimeException('Record the payment reference, the LPO number, the contract number, or paste '
             . 'the payment message before releasing these certificates.');
     }
 
@@ -571,9 +579,9 @@ function batch_approve(int $batchId, array $user, string $ref, string $note,
 
         // this payment, recorded on its own. A second tranche adds a second row
         // rather than writing over the first.
-        q("INSERT INTO batch_payments (batch_id, payment_ref, lpo_no, note, certificates, received_by)
-           VALUES (?, ?, ?, ?, ?, ?)",
-          [$batchId, $ref, $lpo, $note, count($pending), $user['id']]);
+        q("INSERT INTO batch_payments (batch_id, payment_ref, lpo_no, contract_no, note, certificates, received_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?)",
+          [$batchId, $ref, $lpo, $contract, $note, count($pending), $user['id']]);
 
         q("UPDATE certificate_batches
               SET approved_by = ?, approved_at = now(), rejection_reason = NULL
@@ -588,11 +596,11 @@ function batch_approve(int $batchId, array $user, string $ref, string $note,
 
             q("UPDATE certificates
                   SET number = ?, snapshot = ?, approval_status = 'approved', status = 'issued',
-                      payment_ref = ?, lpo_no = ?, payment_note = ?,
+                      payment_ref = ?, lpo_no = ?, contract_no = ?, payment_note = ?,
                       approved_by = ?, approved_at = now(),
                       rejection_reason = NULL, pdf_path = NULL, pdf_sha256 = NULL
                 WHERE id = ?",
-              [$number, json_encode($snapshot), $ref, $lpo, $note, $user['id'], $cert['id']]);
+              [$number, json_encode($snapshot), $ref, $lpo, $contract, $note, $user['id'], $cert['id']]);
 
             $vehicles[(int)$cert['vehicle_id']] = true;
         }
@@ -624,7 +632,7 @@ function batch_approve(int $batchId, array $user, string $ref, string $note,
     }
 
     audit('approve_batch', 'batch', $batchId,
-          ['ref' => $ref, 'lpo' => $lpo, 'approved' => count($pending), 'still_pending' => $left]);
+          ['ref' => $ref, 'lpo' => $lpo, 'contract' => $contract, 'approved' => count($pending), 'still_pending' => $left]);
 
     return ['approved' => count($pending), 'still_pending' => $left];
 }

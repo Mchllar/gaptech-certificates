@@ -13,6 +13,7 @@
 require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/certificates.php';
 require APP_DIR . '/views/layout.php';
+require_once APP_DIR . '/views/kenya_towns.php';   // the Address box's town list
 
 $user = require_supervisor();
 $cert = q('SELECT * FROM certificates WHERE id = ?', [(int)($_GET['id'] ?? 0)])->fetch();
@@ -48,7 +49,70 @@ $form = [
 $upperFields = ['client_name', 'client_address', 'reg_no', 'make', 'chassis_no',
                 'device_model', 'serial_no', 'technician', 'receipt_ref'];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// ------------------------------------------------- the registration, added later
+//
+// A vehicle with no plate yet is certified on its chassis number, which then
+// sits in the Registration box. When the plate is issued it is added here -
+// even after printing, because nothing else on the certificate changes and the
+// sheet is printed again with the plate on it. Only that one field changes.
+$printedReg  = (string)($snapshot['vehicle']['reg_no'] ?? '');
+$printedChas = (string)($snapshot['vehicle']['chassis_no'] ?? '');
+$awaitingReg = plate_key($printedChas) !== '' && plate_key($printedReg) === plate_key($printedChas)
+    && in_array($status, ['Valid', 'Scheduled', 'Pending approval'], true);
+$regErrors   = [];
+$newReg      = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'add_reg') {
+    csrf_check();
+    if (!$awaitingReg) {
+        http_response_code(403);
+        exit('This certificate already has a registration number.');
+    }
+    $newReg = plate_display(mb_strtoupper(trim((string)($_POST['new_reg'] ?? '')), 'UTF-8'));
+    if (plate_key($newReg) === '') {
+        $regErrors[] = 'Type the registration number.';
+    } elseif (plate_key($newReg) === plate_key($printedChas)) {
+        $regErrors[] = 'That is the chassis number. Type the number plate.';
+    } else {
+        $other = vehicle_match($newReg);
+        if ($other && (int)$other['id'] !== (int)$cert['vehicle_id']) {
+            $owner = (string)q('SELECT name FROM clients WHERE id = ?', [$other['client_id']])->fetchColumn();
+            $regErrors[] = $newReg . ' is already on file as another vehicle (chassis '
+                . ($other['chassis_no'] ?: 'not recorded') . ', ' . $owner . '). Check the number.';
+        }
+    }
+
+    if (!$regErrors) {
+        $pdo = db();
+        $pdo->beginTransaction();
+        try {
+            $new = $snapshot;
+            $new['vehicle']['reg_no'] = $newReg;
+            audit('add_registration', 'certificate', (int)$cert['id'], [
+                'number' => $cert['number'], 'chassis_no' => $printedChas,
+                'before' => $printedReg, 'after' => $newReg,
+            ]);
+            q('UPDATE certificates SET snapshot = ?, pdf_path = NULL, pdf_sha256 = NULL WHERE id = ?',
+                [json_encode($new), $cert['id']]);
+            q('UPDATE vehicles SET reg_no = ? WHERE id = ?', [$newReg, $cert['vehicle_id']]);
+            $pdo->commit();
+        } catch (Throwable $err) {
+            $pdo->rollBack();
+            $regErrors[] = 'Could not save: ' . $err->getMessage();
+        }
+        if (!$regErrors) {
+            $old = rtrim($config['storage'], '/\\') . '/certificates/certificate-' . $cert['number'] . '.pdf';
+            if (is_file($old)) {
+                @unlink($old);
+            }
+            flash('Registration ' . $newReg . ' added to certificate ' . $cert['number']
+                . '. Print it again so the paper shows the plate.');
+            redirect('certificate_view.php?id=' . $cert['id']);
+        }
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'add_reg') {
     csrf_check();
     if (!$editable) {
         http_response_code(403);
@@ -165,6 +229,7 @@ function edit_field(string $name, string $label, string $value, array $opts = []
         . ($caps ? ' class="caps"' : '')
         . (isset($opts['min']) ? ' min="' . e((string)$opts['min']) . '"' : '')
         . (isset($opts['max']) ? ' max="' . e((string)$opts['max']) . '"' : '')
+        . (isset($opts['list']) ? ' list="' . e($opts['list']) . '" autocomplete="on"' : '')
         . '>';
     echo '</span></label>';
 }
@@ -174,7 +239,26 @@ layout_back('certificate_view.php?id=' . (int)$cert['id'], 'Back to certificate'
 ?>
 <h1>EDIT CERTIFICATE - <?= e($cert['number']) ?></h1>
 <p class="hint" style="color: blue;"><?= e($snapshot['client']['name']) ?> &middot; <?= e($snapshot['vehicle']['reg_no']) ?></p>
-<?php if (!$editable): ?>
+<?php if ($awaitingReg && (!$editable || !empty($_GET['add_reg']) || $regErrors)): ?>
+  <p class="hint" style="text-align:left">This certificate was issued before the vehicle had a
+    registration, so it shows chassis <b><?= e($printedChas) ?></b> in the Registration box.
+    Add the number plate now; nothing else on the certificate changes. Print it again afterwards.</p>
+  <?php foreach ($regErrors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
+  <form method="post" class="card-form" autocomplete="off">
+    <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+    <fieldset>
+      <legend>Add the registration</legend>
+      <label class="field">Registration no. <span class="req">*</span>
+        <span class="field-row"><input name="new_reg" class="caps" maxlength="20" required autofocus
+               value="<?= e($newReg) ?>" placeholder="e.g. KDA 107G"></span>
+      </label>
+    </fieldset>
+    <div class="actions">
+      <button type="submit" name="action" value="add_reg">Save the registration</button>
+      <a class="button secondary" href="certificate_view.php?id=<?= (int)$cert['id'] ?>">Cancel</a>
+    </div>
+  </form>
+<?php elseif (!$editable): ?>
   <p class="error">
     <?php if ($status !== 'Valid'): ?>
       <span style="color: green;">
@@ -200,6 +284,7 @@ downloaded yet.</p>
 
 <?php foreach ($errors as $msg): ?><p class="error"><?= e($msg) ?></p><?php endforeach; ?>
 
+<?php kenya_towns_datalist(); ?>
 <form method="post" class="card-form" autocomplete="off">
   <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
 
@@ -207,7 +292,7 @@ downloaded yet.</p>
     <legend>Customer</legend>
     <?php edit_field('client_name', 'Customer name', $form['client_name'], ['caps' => true]); ?>
     <?php edit_field('client_phone', 'Contact', $form['client_phone'], ['type' => 'tel']); ?>
-    <?php edit_field('client_address', 'Address', $form['client_address'], ['caps' => true]); ?>
+    <?php edit_field('client_address', 'Address', $form['client_address'], ['caps' => true, 'list' => 'kenya-towns']); ?>
   </fieldset>
 
   <fieldset>

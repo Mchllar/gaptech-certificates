@@ -51,9 +51,92 @@ require_once __DIR__ . '/sheet_helpers.php';
   .emb { text-shadow: 1px 1px 0 rgba(255,255,255,0.7), -1px -1px 0 rgba(0,0,0,0.18); }
   .rot { -webkit-transform: rotate(-90deg); -webkit-transform-origin: left top; }
   .dup { -webkit-transform: rotate(-56deg); -webkit-transform-origin: left top; color: #DADADA; letter-spacing: 5px; }
+
+  /* ---- signature on/off (screen prints only; a PDF always has it) ---- */
+  body.no-sig .sig-img { display: none !important; }
+  /* Bolder signature. Only a transparent PNG: the ink is taken to solid black and
+     shadowed onto itself a hair each way, which thickens every stroke. (A JPEG has a
+     white background that would go black with it, so it is left as it is.) */
+  img.sig-img[src^="data:image/png"], img.sig-img[src$=".png"] {
+    filter: brightness(0) drop-shadow(0.9px 0 0 #000) drop-shadow(-0.9px 0 0 #000)
+            drop-shadow(0 0.9px 0 #000) drop-shadow(0 -0.9px 0 #000); }
+
+  /* ---- onto the PRE-PRINTED stationery ----------------------------------
+     The blank already carries everything that never changes, so only the
+     entries print: the helpers tag them "entry" (values, Cert No., signatures)
+     and everything else is hidden - hidden, not removed, so not one entry
+     moves from the position measured off the stationery. The dealer number is
+     printed on the blank too, so it is marked not-entry. */
+  .sheet.pp * { visibility: hidden; }
+  .sheet.pp .entry, .sheet.pp .entry *, .sheet.pp .tick { visibility: visible; }
+  .sheet.pp .not-entry, .sheet.pp .not-entry * { visibility: hidden; }
+  .sheet.pp.own-no .certno { visibility: hidden; }     /* the blank has its own Cert No. */
+  .pp-ruler, .pp-ruler * { visibility: visible !important; }
+  .sheet.pp.align .ln, .sheet.pp.align .box { visibility: visible; border-color: #D0021B; }
+  .sheet.pp.align .entry, .sheet.pp.align .tick { visibility: hidden; }
+
+  @media screen {
+    /* The design, faded, behind the entries - a guide that never prints. */
+    .sheet.pp.ghost * { visibility: visible; }
+    .sheet.pp.ghost > *:not(.entry):not(.pp-ruler) { opacity: .25; }
+    .sheet.pp.ghost.own-no .certno { opacity: .25; }
+    .sheet.pp.align.ghost .entry { visibility: hidden; }
+  }
+  @media print {
+    /* The printer's own drift from Settings, in sheet units (7.872 per mm). */
+    .sheet.pp { transform: translate(<?= round((float)setting('governor_offset_x', '0') * 2338 / 297, 2) ?>px,
+                                     <?= round((float)setting('governor_offset_y', '0') * 2338 / 297, 2) ?>px); }
+    .screen-only { display: none !important; }
+  }
 </style>
 </head>
-<body>
+<?php
+  // Set by certificate_print.php for this one print; render_sheet()'s other
+  // callers (the PDF) leave them unset and get the full design, signed.
+  $ppMode   = !empty($GLOBALS['sheet_preprinted']);
+  $ppAlign  = !empty($GLOBALS['sheet_align']);
+  $ppOwnNo  = trim((string)($GLOBALS['sheet_own_number'] ?? '')) !== '';
+  $onScreen = strpos((string)$assets, 'file://') !== 0;
+  $withSig  = !$onScreen || ($GLOBALS['sheet_print_signature'] ?? true);
+  $sheetCls = trim('sheet' . ($ppMode ? ' pp ghost' : '') . ($ppAlign ? ' align' : '')
+                   . ($ppOwnNo ? ' own-no' : ''));
+?>
+<body class="<?= $withSig ? '' : 'no-sig' ?>">
+<?php if ($onScreen && empty($GLOBALS['sheet_no_bar'])): ?>
+<?php /* The body is zoomed down to fit the sheet on the page; zooming this bar
+         back up keeps it at its normal size. */ ?>
+<div class="screen-only" style="zoom:<?= round(1 / $zoom, 4) ?>; max-width:1123px; margin:14px 0;
+     display:flex; gap:16px; align-items:center; flex-wrap:wrap; font:14px 'Segoe UI', system-ui, sans-serif; color:#33414F">
+  <?php if (!$ppAlign): ?>
+    <label style="display:inline-flex; gap:6px; align-items:center; cursor:pointer">
+      <input type="checkbox" <?= $withSig ? 'checked' : '' ?>
+             onchange="document.body.classList.toggle('no-sig', !this.checked)"> Print the signature</label>
+  <?php endif; ?>
+  <?php if ($ppMode): ?>
+    <label style="display:inline-flex; gap:6px; align-items:center; cursor:pointer">
+      <input type="checkbox" checked
+             onchange="document.querySelector('.sheet').classList.toggle('ghost', this.checked)">
+      Show the design behind (screen only)</label>
+    <span style="flex-basis:100%; padding:9px 13px; border-radius:9px; background:#FFF8E6; border:1px solid #F0D9A0; color:#5A4500">
+      <?php if ($ppAlign): ?>
+        <b>Alignment test:</b> print onto a spoiled blank at <b>A4 landscape, 100% / Actual size</b>.
+        Red lines show where the system thinks the blank's lines are. Where the blank's own line crosses each
+        ruler is the correction in mm: <b>across</b> rulers &rarr; "Move right by", <b>down</b> rulers &rarr;
+        "Move down by". Add it to Settings (now <?= e(setting('governor_offset_x', '0')) ?> right,
+        <?= e(setting('governor_offset_y', '0')) ?> down). Different readings at the two ends mean the page is
+        being scaled &mdash; fix the print dialog, not the settings.
+      <?php else: ?>
+        <b>Before printing:</b> load ONE blank certificate sheet. Choose <b>A4 landscape</b>, scale
+        <b>100% / Actual size</b>, headers and footers off. Only the entries print &mdash; the faded design
+        is a guide. Off the lines? Print the <a href="certificate_print.php?align=1" target="_blank">alignment test</a> once.
+      <?php endif; ?>
+    </span>
+  <?php endif; ?>
+  <button type="button" onclick="window.print()" style="height:38px; padding:0 18px; border-radius:9px; border:0;
+          background:#0D4F72; color:#fff; font:600 14px 'Segoe UI', system-ui, sans-serif; cursor:pointer">
+    <?= $ppAlign ? 'Print the test' : ($ppMode ? 'Print onto the blank' : 'Print') ?></button>
+</div>
+<?php endif; ?>
  
  
  
@@ -66,7 +149,7 @@ require_once __DIR__ . '/sheet_helpers.php';
  
  
  
-<div class="sheet">
+<div class="<?= $sheetCls ?>">
  
   <!-- security microtext bands (printed background) -->
   <div class="micro" style="left:0; top:122px; width:1160px; height:66px;"><?= $microtext ?><br><?= $microtext ?><br><?= $microtext ?></div>
@@ -132,12 +215,12 @@ require_once __DIR__ . '/sheet_helpers.php';
   <div class="box" style="left:45px; top:1185px; width:1024px; height:207px;"></div>
   <?= t(55, 1205, 24.6, 'cb', 'FITTING CENTER DETAILS') ?>
   <?= t(55, 1250, 25, 'c', 'DEALER:') ?>
-  <?= ln(142, 475, 1262) ?><?= val(142, 475, 1262, 27, 'cb', 'CB', $d['company']['dealer_no'], 4) ?>
+  <?= ln(142, 475, 1262) ?><?= val(142, 475, 1262, 27, 'cb not-entry', 'CB', $d['company']['dealer_no'], 4) ?>
   <div class="t a" style="left:480px; top:<?= 1250 - 15 ?>px; font-size:29px;">FITTING<span class="chk"><?php if (!$d['cert']['is_renewal']): ?><span class="tick">&#10003;</span><?php endif; ?></span>RENEWAL<span class="chk"><?php if ($d['cert']['is_renewal']): ?><span class="tick">&#10003;</span><?php endif; ?></span>(Service Type)</div>
   <div class="t c" style="left:55px; top:<?= 1305 - 16 ?>px; font-size:24.5px;">Dealer Name: <span class="cb" style="font-size:32.8px;"><?= e($d['company']['dealer_name']) ?></span></div>
   <?= t(55, 1365, 24.7, 'c', 'Signature:') ?>
   <?= ln(160, 540, 1377) ?>
-  <?= signature(250, 1322, 200, 50) ?>
+  <?= signature(230, 1330, 240, 1390) ?>
   <?= t(552, 1365, 24.7, 'c', 'Company seal (here)') ?>
   <?= ln(770, 1058, 1377) ?>
   <?php if (!empty($d['company']['stamp_image'])): ?><img class="img" src="<?= e($d['company']['stamp_image']) ?>" style="left:830px; top:1262px; height:125px; opacity:0.85;"><?php endif; ?>
@@ -182,7 +265,7 @@ require_once __DIR__ . '/sheet_helpers.php';
  
   <?= t(1185, 747, 24.3, 'c', 'SIGNED') ?>
   <?= ln(1375, 1612, 775) ?>
-  <?= signature(1395, 722, 200, 48) ?>
+  <?= signature(1385, 722, 220, 784) ?>
   <?= tc(1375, 1612, 797, 27.2, 'cbi', 'COMPANY', 'color:#333;') ?>
   <?= ln(1865, 2102, 780) ?>
   <?= tc(1865, 2102, 803, 27.2, 'cbi', 'CLIENT/REP.', 'color:#333;') ?>
@@ -200,7 +283,7 @@ require_once __DIR__ . '/sheet_helpers.php';
     <?= t(1170, $cy, 22.3, 'ab', $label) ?><?= ln(1300, 1518, $cy + 12) ?><?= val(1300, 1518, $cy + 12, 32.7, 'ab', 'AB', $value, 4) ?>
   <?php endforeach; ?>
   <?= t(1170, 1540, 22.3, 'ab', 'Signature') ?><?= ln(1300, 1518, 1552) ?>
-  <?= signature(1320, 1502, 180, 46) ?>
+  <?= signature(1310, 1490, 200, 1585) ?>
  
   <!-- ================= VEHICLE STICKER (bottom right) ================= -->
   <img class="img" src="<?= $sticker_bg ?>" style="left:1568px; top:872px; width:737px; height:726px;">
@@ -221,8 +304,45 @@ require_once __DIR__ . '/sheet_helpers.php';
     <?= t(1613, $cy, 27.6, 'ab emb', $label, 'color:#3a3a3a;') ?><?= ln(1770, 2222, $cy + 14) ?><?= val(1770, 2222, $cy + 14, 33, 'ab', 'AB', $value, 4) ?>
   <?php endforeach; ?>
   <?= t(1613, 1540, 27.6, 'ab emb', 'Signature', 'color:#3a3a3a;') ?><?= ln(1770, 2222, 1554) ?>
-  <?= signature(1890, 1500, 210, 48) ?>
+  <?= signature(1880, 1490, 230, 1572) ?>
  
+  <?php if ($ppAlign):
+    // Millimetre rulers for the alignment test, in sheet units (7.872 per mm).
+    // 0 is where the blank's line should cross; read the blank's own line off it.
+    $u = 2338 / 297;
+    $rul = function (float $x, float $y, string $dir, string $label) use ($u): string {
+        $o = '<div class="pp-ruler">';
+        for ($i = -10; $i <= 10; $i++) {
+            $len = ($i === 0 ? 7 : ($i % 5 === 0 ? 5 : 3)) * $u;
+            if ($dir === 'h') {
+                $o .= '<i style="position:absolute;background:#000;left:' . round($x + $i * $u - 1) . 'px;top:' . round($y - $len / 2)
+                    . 'px;width:2px;height:' . round($len) . 'px"></i>';
+                if ($i % 5 === 0) {
+                    $o .= '<b style="position:absolute;font:600 15px Arial;left:' . round($x + $i * $u - 20) . 'px;top:' . round($y + 4 * $u)
+                        . 'px;width:40px;text-align:center">' . ($i > 0 ? '+' : '') . $i . '</b>';
+                }
+            } else {
+                $o .= '<i style="position:absolute;background:#000;top:' . round($y + $i * $u - 1) . 'px;left:' . round($x - $len / 2)
+                    . 'px;height:2px;width:' . round($len) . 'px"></i>';
+                if ($i % 5 === 0) {
+                    $o .= '<b style="position:absolute;font:600 15px Arial;top:' . round($y + $i * $u - 8) . 'px;left:' . round($x + 4 * $u)
+                        . 'px">' . ($i > 0 ? '+' : '') . $i . '</b>';
+                }
+            }
+        }
+        $o .= $dir === 'h'
+            ? '<i style="position:absolute;background:#000;left:' . round($x - 10 * $u) . 'px;top:' . round($y - 1) . 'px;width:' . round(20 * $u) . 'px;height:2px"></i>'
+            : '<i style="position:absolute;background:#000;top:' . round($y - 10 * $u) . 'px;left:' . round($x - 1) . 'px;height:' . round(20 * $u) . 'px;width:2px"></i>';
+        $lx = $dir === 'h' ? $x - 10 * $u : $x + 9 * $u;
+        $ly = $dir === 'h' ? $y - 8 * $u : $y - 2;
+        return $o . '<b style="position:absolute;font:700 17px Arial;white-space:nowrap;left:' . round($lx) . 'px;top:' . round($ly) . 'px">'
+             . $label . '</b></div>';
+    };
+    echo $rul(1069, 1290, 'h', 'ACROSS &rarr; Move right by');    // the red box's right edge
+    echo $rul(640, 470, 'v', 'DOWN &darr; Move down by');         // the Customer Name line
+    echo $rul(1992, 135, 'h', 'ACROSS &rarr; Move right by');     // the WARRANTY CARD block's left edge
+    echo $rul(2000, 1554, 'v', 'DOWN &darr; Move down by');       // the sticker's Signature line
+  endif; ?>
 </div>
 </body>
 </html>

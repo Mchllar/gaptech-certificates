@@ -120,6 +120,12 @@ $fit = function (string $v) use ($pt): string {
   .stamp  { position: absolute; height: 24mm; }
   body.no-stamp .stamp { display: none; }
   body.no-sig .sig img { display: none; }
+  /* Bolder signature. Only a transparent PNG: the ink is taken to solid black and
+     shadowed onto itself a hair each way, which thickens every stroke. (A JPEG has a
+     white background that would go black with it, so it is left as it is.) */
+  .sig img[src^="data:image/png"], .sig img[src$=".png"] {
+    filter: brightness(0) drop-shadow(0.1mm 0 0 #000) drop-shadow(-0.1mm 0 0 #000)
+            drop-shadow(0 0.1mm 0 #000) drop-shadow(0 -0.1mm 0 #000); }
 
   @media print {
     body { background: #fff; }

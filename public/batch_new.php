@@ -15,6 +15,7 @@ require_once APP_DIR . '/batches.php';
 require_once APP_DIR . '/spreadsheet.php';      // CSV or Excel (.xlsx)          // the bulk functions
 require_once APP_DIR . '/views/mode_switch.php'; // one vehicle / a whole fleet
 require APP_DIR . '/views/layout.php';
+require_once APP_DIR . '/views/kenya_towns.php';   // the Address box's town list
 
 $user   = require_admin();
 $errors = [];
@@ -127,6 +128,7 @@ accounts as a single payment.</p>
         <input name="client_name" list="known-clients" class="caps" required maxlength="120"
                value="<?= e($form['client_name']) ?>">
       </span>
+      <?php kenya_towns_datalist(); ?>
       <datalist id="known-clients">
         <?php foreach ($clients as $c): ?>
           <option value="<?= e($c['name']) ?>"><?= e($c['phone']) ?></option>
@@ -144,7 +146,7 @@ accounts as a single payment.</p>
 
     <label class="field">Address
       <span class="field-row">
-        <input name="client_address" class="caps" maxlength="160"
+        <input name="client_address" class="caps" maxlength="160" list="kenya-towns" autocomplete="on"
                value="<?= e($form['client_address']) ?>">
       </span>
     </label>

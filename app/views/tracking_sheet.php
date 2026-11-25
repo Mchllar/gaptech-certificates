@@ -352,6 +352,12 @@ $rows = [
 <body class="<?= trim(($withStamp ? '' : 'no-stamp') . ' ' . ($withSig ? '' : 'no-sig')) ?>">
 <style>body.no-stamp .stamp { display: none; }
   body.no-sig .sig-img { display: none; }
+  /* Bolder signature. Only a transparent PNG: the ink is taken to solid black and
+     shadowed onto itself a hair each way, which thickens every stroke. (A JPEG has a
+     white background that would go black with it, so it is left as it is.) */
+  img.sig-img[src^="data:image/png"], img.sig-img[src$=".png"] {
+    filter: brightness(0) drop-shadow(0.1mm 0 0 #000) drop-shadow(-0.1mm 0 0 #000)
+            drop-shadow(0 0.1mm 0 #000) drop-shadow(0 -0.1mm 0 #000); }
   .screen-only .bar-opt { font: 14px "Segoe UI", system-ui, sans-serif; color: #33414F;
                           display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }</style>
 

@@ -51,6 +51,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     set_setting('preprinted_font_pt', (string)max(7, min(18, round($pt, 1))));
     set_setting('tracking_print_stamp', !empty($_POST['tracking_print_stamp']) ? '1' : '0');
     set_setting('tracking_print_signature', !empty($_POST['tracking_print_signature']) ? '1' : '0');
+    // Speed governor certificates: the same choices, for the landscape sheet.
+    set_setting('governor_print_stock',
+        ($_POST['governor_print_stock'] ?? '') === 'preprinted' ? 'preprinted' : 'plain');
+    set_setting('governor_print_signature', !empty($_POST['governor_print_signature']) ? '1' : '0');
+    foreach (['governor_offset_x', 'governor_offset_y'] as $key) {
+        $mmv = (float)str_replace(',', '.', (string)($_POST[$key] ?? '0'));
+        set_setting($key, (string)max(-15, min(15, round($mmv, 1))));
+    }
     audit('update_settings', 'settings');
     flash('Settings saved. New certificates will use them; certificates already issued are unchanged.');
     redirect('settings.php');
@@ -111,6 +119,31 @@ they were issued with.</p>
         </div>
       <?php endforeach; ?>
     </div>
+  </fieldset>
+  <fieldset>
+    <legend>Printing speed governor certificates</legend>
+    <label>Usual paper
+      <select name="governor_print_stock">
+        <option value="plain" <?= setting('governor_print_stock', 'plain') !== 'preprinted' ? 'selected' : '' ?>>
+          Plain paper &mdash; the whole certificate prints</option>
+        <option value="preprinted" <?= setting('governor_print_stock', 'plain') === 'preprinted' ? 'selected' : '' ?>>
+          Pre-printed certificates &mdash; only the entries print</option>
+      </select>
+    </label>
+    <label class="inline" style="display:flex; gap:8px; align-items:center">
+      <input type="checkbox" name="governor_print_signature" value="1" style="width:16px; margin:0"
+             <?= setting('governor_print_signature', '1') === '1' ? 'checked' : '' ?>>
+      Print the signature (changeable on each print; a PDF always has it)</label>
+    <p class="hint" style="text-align:left">If the entries land off the lines on the pre-printed sheet,
+       print the <a href="certificate_print.php?align=1" target="_blank">alignment test</a> onto a spoiled
+       blank and read the rulers. Millimetres; minus for left or up. Separate from the tracking
+       adjustment, because this sheet prints landscape.</p>
+    <label>Move right by (mm)
+      <input name="governor_offset_x" type="number" step="0.5" min="-15" max="15"
+             value="<?= e(setting('governor_offset_x', '0')) ?>"></label>
+    <label>Move down by (mm)
+      <input name="governor_offset_y" type="number" step="0.5" min="-15" max="15"
+             value="<?= e(setting('governor_offset_y', '0')) ?>"></label>
   </fieldset>
   <fieldset>
     <legend>Printing tracking certificates</legend>

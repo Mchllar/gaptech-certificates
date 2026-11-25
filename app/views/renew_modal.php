@@ -70,7 +70,12 @@ require_once __DIR__ . '/modal_base.php';
              placeholder="If the client is paying later against an LPO">
     </label>
 
-    <p class="gt-hint">Both are optional &mdash; accounts can fill in either when they approve.
+    <label class="gt-f">Contract number
+      <input name="contract_no" id="renew-contract" maxlength="60" style="text-transform:uppercase"
+             placeholder="If the client is on a contract">
+    </label>
+
+    <p class="gt-hint">All optional &mdash; accounts can fill in any of them when they approve.
       The certificate takes its number, and becomes available to the client, only once
       they do.</p>
 
@@ -93,6 +98,7 @@ require_once __DIR__ . '/modal_base.php';
     cert:   document.getElementById('renew-cert'),
     note:   document.getElementById('renew-note'),
     lpo:    document.getElementById('renew-lpo'),
+    contract: document.getElementById('renew-contract'),
     start:  document.getElementById('renew-start'),
     end:    document.getElementById('renew-end')
   };
@@ -116,6 +122,7 @@ require_once __DIR__ . '/modal_base.php';
       // looked at is the kind of thing nobody notices until it is on a receipt.
       field.note.value = '';
       field.lpo.value  = '';
+      field.contract.value = '';
 
       modal.classList.add('on');
       field.note.focus();

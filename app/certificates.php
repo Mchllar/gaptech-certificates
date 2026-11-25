@@ -234,6 +234,12 @@ function plate_key(string $reg): string
 /** Pull the payment reference out of a pasted M-Pesa or bank message. */
 function extract_payment_ref(string $text): string
 {
+    // Pesalink has no transaction code; the code at the end of the receipt link
+    // is the one thing unique to the payment: .../r1=lvSHCkKf -> PL-LVSHCKKF.
+    // Keep in step with window.gtPaymentRef in app/views/layout.php.
+    if (preg_match('~pesalink\.co\.ke/\S*?r\d*=([A-Za-z0-9]{5,20})~i', $text, $pl)) {
+        return 'PL-' . strtoupper($pl[1]);
+    }
     $up = strtoupper($text);
     $patterns = [
         '/M[-\s]?PESA\s*REF[:.\s]*([A-Z0-9]{8,15})/',
@@ -299,10 +305,13 @@ function certificate_label(array $cert): string
  * downloadable and verifiable.
  */
 function approve_certificate(array $cert, array $user, string $ref = '',
-                             string $note = '', string $lpo = ''): array
+                             string $note = '', string $lpo = '', string $contract = ''): array
 {
     $ref  = trim($ref);
     $lpo  = trim($lpo);
+    // A contract number: the client is on a contract, and the certificate is
+    // released against it. Not unique, like an LPO - one contract, many vehicles.
+    $contract = trim($contract);
     $note = trim($note);
 
     if (($cert['approval_status'] ?? '') === 'approved') {
@@ -320,9 +329,9 @@ function approve_certificate(array $cert, array $user, string $ref = '',
     // So the floor is "say what you are releasing this on", not "say it in this
     // particular field". All three blank still fails, because a release with
     // nothing recorded is accounts approving a certificate on no evidence at all.
-    if ($ref === '' && $lpo === '' && $note === '') {
-        throw new RuntimeException('Record the payment reference, the LPO number, or paste '
-            . 'the payment message before releasing this certificate.');
+    if ($ref === '' && $lpo === '' && $contract === '' && $note === '') {
+        throw new RuntimeException('Record the payment reference, the LPO number, the contract '
+            . 'number, or paste the payment message before releasing this certificate.');
     }
 
     $pdo = db();
@@ -354,11 +363,11 @@ function approve_certificate(array $cert, array $user, string $ref = '',
 
         q("UPDATE certificates
               SET number = ?, snapshot = ?, approval_status = 'approved', status = 'issued',
-                  payment_ref = ?, payment_note = ?, lpo_no = ?,
+                  payment_ref = ?, payment_note = ?, lpo_no = ?, contract_no = ?,
                   approved_by = ?, approved_at = now(),
                   rejection_reason = NULL, pdf_path = NULL, pdf_sha256 = NULL
             WHERE id = ?",
-            [$number, json_encode($snapshot), $ref, $note, $lpo, $user['id'], $cert['id']]);
+            [$number, json_encode($snapshot), $ref, $note, $lpo, $contract, $user['id'], $cert['id']]);
 
         // Work out which of the vehicle's certificates is current TODAY, and
         // retire the rest.
@@ -391,7 +400,8 @@ function approve_certificate(array $cert, array $user, string $ref = '',
         'number'       => $number,
         'payment_ref'  => $ref,
         'lpo_no'       => $lpo,
-        'on_credit'    => $ref === '' && $lpo !== '',
+        'contract_no'  => $contract,
+        'on_credit'    => $ref === '' && ($lpo !== '' || $contract !== ''),
         'confirmed_by' => (int)$user['id'],
     ]);
 

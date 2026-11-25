@@ -89,6 +89,25 @@ function layout_top(string $title, string $nav = 'staff'): void
     ?>
 
     <script>
+      // The payment reference in a pasted M-Pesa, bank or Pesalink message - the
+      // browser twin of extract_payment_ref() in app/certificates.php. Keep the
+      // two the same. Used by every "paste the payment message" box.
+      window.gtPaymentRef = function (text) {
+        text = text || '';
+        // Pesalink has no transaction code; the receipt link's code is the one
+        // thing unique to the payment: .../r1=lvSHCkKf -> PL-LVSHCKKF
+        var pl = text.match(/pesalink\.co\.ke\/\S*?r\d*=([A-Za-z0-9]{5,20})/i);
+        if (pl) { return 'PL-' + pl[1].toUpperCase(); }
+        var up = text.toUpperCase();
+        var m = up.match(/M[-\s]?PESA\s*REF[:.\s]*([A-Z0-9]{8,15})/)
+             || up.match(/\bREF(?:ERENCE)?[:.\s]*([A-Z0-9]{8,15})/)
+             || up.match(/\b([A-Z0-9]{10})\b/);
+        if (!m) { return ''; }
+        // a real reference mixes letters and digits - this skips words, phone numbers and amounts
+        return (/[0-9]/.test(m[1]) && /[A-Z]/.test(m[1])) ? m[1] : '';
+      };
+    </script>
+    <script>
       (function () {
         var ICON = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"'
                 + ' stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'

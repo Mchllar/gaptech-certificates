@@ -57,11 +57,14 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                     $done = approve_certificate($target, $user,
                         (string)($_POST['payment_ref'] ?? ''),
                         trim((string)($_POST['payment_note'] ?? '')),
-                        trim((string)($_POST['lpo_no'] ?? '')));
+                        trim((string)($_POST['lpo_no'] ?? '')),
+                        trim((string)($_POST['contract_no'] ?? '')));
 
                     flash('Certificate ' . $done['number'] . ' issued'
                         . (trim((string)$done['payment_ref']) === '' && trim((string)$done['lpo_no']) !== ''
                             ? ' against LPO ' . $done['lpo_no'] : '')
+                        . (trim((string)$done['payment_ref']) === '' && trim((string)($done['contract_no'] ?? '')) !== ''
+                            ? ' against contract ' . $done['contract_no'] : '')
                         . '. The client can download it now.');
                     redirect('certificate_view.php?id=' . $id);
 
@@ -81,7 +84,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                         (string)($_POST['payment_ref'] ?? ''),
                         trim((string)($_POST['payment_note'] ?? '')),
                         trim((string)($_POST['lpo_no'] ?? '')),
-                        $only);
+                        $only,
+                        trim((string)($_POST['contract_no'] ?? '')));
 
                     flash($done['approved'] . ' certificate'
                         . ($done['approved'] === 1 ? '' : 's') . ' released and numbered.'
@@ -105,6 +109,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                     $ref  = strtoupper(trim((string)($_POST['payment_ref'] ?? '')));
                     $note = trim((string)($_POST['payment_note'] ?? ''));
                     $lpo  = trim((string)($_POST['lpo_no'] ?? ''));
+                    $contract = trim((string)($_POST['contract_no'] ?? ''));
                     $why  = trim((string)($_POST['correction_reason'] ?? ''));
 
                     // Changing the payment on a released certificate is editing a
@@ -119,9 +124,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 
                     // The same floor approval has: a correction must not quietly
                     // leave the certificate released against nothing at all.
-                    if ($ref === '' && $lpo === '' && $note === '') {
+                    if ($ref === '' && $lpo === '' && $contract === '' && $note === '') {
                         throw new RuntimeException('A certificate cannot be left with no payment '
-                            . 'reference, no LPO and no message. Record at least one.');
+                            . 'reference, no LPO, no contract number and no message. Record at least one.');
                     }
 
                     // One payment cannot be on two certificates - the same rule
@@ -136,8 +141,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                         }
                     }
 
-                    q('UPDATE certificates SET payment_ref = ?, payment_note = ?, lpo_no = ?
-                        WHERE id = ?', [$ref, $note, $lpo, $id]);
+                    q('UPDATE certificates SET payment_ref = ?, payment_note = ?, lpo_no = ?, contract_no = ?
+                        WHERE id = ?', [$ref, $note, $lpo, $contract, $id]);
 
                     // Both sides of every field, not just the reference. A trail
                     // that records the new value alone cannot answer "what did it
@@ -148,6 +153,8 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
                         'ref_now'  => $ref,
                         'lpo_was'  => (string)($target['lpo_no'] ?? ''),
                         'lpo_now'  => $lpo,
+                        'contract_was' => (string)($target['contract_no'] ?? ''),
+                        'contract_now' => $contract,
                         'note_changed' => trim((string)$target['payment_note']) !== $note,
                     ]);
                     flash('Payment details updated.');
@@ -209,7 +216,8 @@ if ($batch && count($siblings) < 2) {
 // something in it, rather than showing a heading over two dashes.
 $hasPayment = trim((string)$cert['payment_ref']) !== ''
            || trim((string)$cert['payment_note']) !== ''
-           || trim((string)($cert['lpo_no'] ?? '')) !== '';
+           || trim((string)($cert['lpo_no'] ?? '')) !== ''
+           || trim((string)($cert['contract_no'] ?? '')) !== '';
 
 // A certificate that is no longer the current one: offer the one that is, rather
 // than leaving somebody to go and look for it.
@@ -366,6 +374,10 @@ layout_back('index.php', 'Back to SG. Certificates');
         <th>Released on</th>
         <td><?= e(fmt_date(substr((string)$cert['approved_at'], 0, 10))) ?></td></tr>
   <?php endif; ?>
+  <?php if (trim((string)($cert['stock_serial'] ?? '')) !== ''): ?>
+    <tr><th>Printed on blank</th><td colspan="3">Cert No. <?= e((string)$cert['stock_serial']) ?>
+        <span class="field-hint">&mdash; the number on the pre-printed paper</span></td></tr>
+  <?php endif; ?>
 </table>
 
 <?php if ($batch): ?>
@@ -402,7 +414,7 @@ layout_back('index.php', 'Back to SG. Certificates');
 
     <?php if ($batch['payments']): ?>
       <p class="field-hint" style="margin-top:10px">Paid on
-        <?= e(implode(', ', array_map(fn($p) => $p['payment_ref'] ?: ('LPO ' . $p['lpo_no']),
+        <?= e(implode(', ', array_map(fn($p) => $p['payment_ref'] ?: ($p['lpo_no'] !== '' ? 'LPO ' . $p['lpo_no'] : 'contract ' . ($p['contract_no'] ?? '')),
                                       $batch['payments']))) ?>.</p>
     <?php endif; ?>
   </details>
@@ -429,11 +441,13 @@ layout_back('index.php', 'Back to SG. Certificates');
 // ---------------------------------------------------------------------------
 $payRef  = trim((string)$cert['payment_ref']);
 $payLpo  = trim((string)($cert['lpo_no'] ?? ''));
+$payCon  = trim((string)($cert['contract_no'] ?? ''));
 $payNote = trim((string)$cert['payment_note']);
 
 $payCells = [];
 if ($payRef !== '')  { $payCells[] = ['Reference', e($payRef)]; }
 if ($payLpo !== '')  { $payCells[] = ['LPO', e($payLpo)]; }
+if ($payCon !== '')  { $payCells[] = ['Contract', e($payCon)]; }
 if ($payNote !== '') { $payCells[] = ['Message', '<a href="#" data-modal="#m-note">View</a>']; }
 ?>
 <?php if ($hasPayment && !$rejected && $payCells): ?>
@@ -481,6 +495,10 @@ if ($payNote !== '') { $payCells[] = ['Message', '<a href="#" data-modal="#m-not
           <span class="field-row">
             <input name="lpo_no" maxlength="60" style="text-transform:uppercase"
                    value="<?= e((string)($cert['lpo_no'] ?? '')) ?>"></span></label>
+        <label class="field">Contract number
+          <span class="field-row">
+            <input name="contract_no" maxlength="60" style="text-transform:uppercase"
+                   value="<?= e((string)($cert['contract_no'] ?? '')) ?>"></span></label>
         <label class="field" style="width:100%">Message
           <span class="field-row">
             <textarea name="payment_note" rows="2"
@@ -565,9 +583,17 @@ if ($payNote !== '') { $payCells[] = ['Message', '<a href="#" data-modal="#m-not
         </span>
       </label>
 
-      <p class="hint" style="text-align:left; margin:0">All three are optional. A payment
+      <label class="field">Contract number
+        <span class="field-row">
+          <input name="contract_no" maxlength="60" style="text-transform:uppercase"
+                 placeholder="If the client is on a contract"
+                 value="<?= e((string)($_POST['contract_no'] ?? ($cert['contract_no'] ?? ''))) ?>">
+        </span>
+      </label>
+
+      <p class="hint" style="text-align:left; margin:0">Fill in at least one. A payment
          reference is checked against every other certificate, so one payment cannot
-         release two. An LPO is not &mdash; one LPO routinely covers a whole fleet.</p>
+         release two. An LPO or a contract number is not &mdash; one routinely covers a whole fleet.</p>
     </fieldset>
 
     <?php if ($batch && count($waiting) > 1): ?>
@@ -651,7 +677,23 @@ if ($payNote !== '') { $payCells[] = ['Message', '<a href="#" data-modal="#m-not
 // Release panel below, which is the right place for it - look at it, then decide,
 // in one flow rather than from a stray button further up the page.
 $showCertActions = $live || ($isAdm && $inForce);
+
+// Issued before the vehicle had a registration: the chassis number stands in
+// for it. Once the plate is out, the administrator adds it to this certificate
+// (certificate_edit.php?add_reg=1) - allowed even after printing, because the
+// paper is then printed again with the plate on it.
+$printedReg  = (string)$snap(['vehicle', 'reg_no'], $cert['reg_no']);
+$printedChas = (string)$snap(['vehicle', 'chassis_no'], $cert['chassis_no']);
+$awaitingReg = $isAdm && plate_key($printedChas) !== '' && plate_key($printedReg) === plate_key($printedChas)
+    && in_array(certificate_status($cert), ['Valid', 'Scheduled', 'Pending approval'], true);
 ?>
+<?php if ($awaitingReg): ?>
+<div class="row-actions" style="margin-top:22px; display:flex; flex-wrap:wrap; align-items:center; gap:10px">
+  <span class="hint" style="text-align:left; margin:0">No registration yet &mdash; issued on chassis
+    <?= e($printedChas) ?>.</span>
+  <a class="button" href="certificate_edit.php?id=<?= (int)$cert['id'] ?>&amp;add_reg=1">Add the registration no.</a>
+</div>
+<?php endif; ?>
 <?php if ($showCertActions): ?>
 <h2>The certificate itself</h2>
 
@@ -676,8 +718,18 @@ $showCertActions = $live || ($isAdm && $inForce);
     what its state is and, for a scheduled one, which certificate to print instead.
   */ ?>
   <?php if ($live): ?>
-    <a class="button" target="_blank"
-       href="certificate_print.php?id=<?= (int)$cert['id'] ?>&amp;print=1">Print</a>
+    <?php
+      // Two papers, two buttons. The usual one (Settings) comes first and solid.
+      $printPlain = '<a class="button%s" target="_blank" href="certificate_print.php?id=' . (int)$cert['id']
+                  . '&amp;print=1">Print on plain paper</a>';
+      $printBlank = '<a class="button%s" target="_blank" href="certificate_print.php?id=' . (int)$cert['id']
+                  . '&amp;stock=preprinted">Print on pre-printed certificate</a>';
+      if (setting('governor_print_stock', 'plain') === 'preprinted') {
+          echo sprintf($printBlank, ''), "\n", sprintf($printPlain, ' secondary');
+      } else {
+          echo sprintf($printPlain, ''), "\n", sprintf($printBlank, ' secondary');
+      }
+    ?>
     <a class="button secondary"
        href="certificate_print.php?id=<?= (int)$cert['id'] ?>&amp;download=1">Download PDF</a>
   <?php endif; ?>
@@ -801,8 +853,8 @@ $showCertActions = $live || ($isAdm && $inForce);
 
     function suggest() {
       if (ref.value.trim() !== '') { return; }      // never overwrite a typed value
-      var m = note.value.toUpperCase().match(/\b([A-Z0-9]{10})\b/);
-      if (m) { ref.value = m[1]; }
+      var r = window.gtPaymentRef ? window.gtPaymentRef(note.value) : '';   // app/views/layout.php
+      if (r) { ref.value = r; }
     }
 
     note.addEventListener('input', suggest);

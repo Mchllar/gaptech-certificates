@@ -256,13 +256,7 @@ layout_back('approvals.php', 'Back to SG. Approvals');
   });
 
   function extractRef(text) {
-    var up = (text || '').toUpperCase();
-    var m = up.match(/M[-\s]?PESA\s*REF[:.\s]*([A-Z0-9]{8,15})/)
-         || up.match(/\bREF(?:ERENCE)?[:.\s]*([A-Z0-9]{8,15})/)
-         || up.match(/\b([A-Z0-9]{10})\b/);
-    if (!m) { return ''; }
-    // a real reference mixes letters and digits - this skips phone numbers and amounts
-    return (/[0-9]/.test(m[1]) && /[A-Z]/.test(m[1])) ? m[1] : '';
+    return window.gtPaymentRef ? window.gtPaymentRef(text) : '';   // app/views/layout.php
   }
 
   function wirePayEdit(scope) {

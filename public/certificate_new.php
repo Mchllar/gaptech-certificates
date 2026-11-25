@@ -8,6 +8,7 @@
 require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/certificates.php';
 require APP_DIR . '/views/layout.php';
+require_once APP_DIR . '/views/kenya_towns.php';   // the Address box's town list
 require_once APP_DIR . '/batches.php';
 require_once APP_DIR . '/spreadsheet.php';      // CSV or Excel (.xlsx)          // bulk certificates
 
@@ -117,6 +118,11 @@ $form = [
     // because the lorry was re-plated, rather than because somebody mistyped.
     'replated' => '',
 
+    // Ticked when the vehicle has no registration yet. The chassis number is
+    // then used as its registration - printed in that box and matched on - until
+    // the plate is added to the certificate (certificate_edit.php).
+    'no_reg' => '',
+
     // Why this lorry's governor is being changed for a different one. Asked for
     // only when the serial typed is not the one already fitted - see the swap
     // check below.
@@ -146,6 +152,9 @@ if (!empty($_GET['reg'])) {
         $form['reg_no'] = (string)$v['reg_no'];
         $form['make'] = (string)$v['make'];
         $form['chassis_no'] = (string)$v['chassis_no'];
+        if (plate_key($form['reg_no']) !== '' && plate_key($form['reg_no']) === plate_key($form['chassis_no'])) {
+            $form['no_reg'] = '1';
+        }
         $last = q('SELECT d.*, i.installed_on
                    FROM installations i JOIN devices d ON d.id = i.device_id
                    WHERE i.vehicle_id = ? ORDER BY i.installed_on DESC LIMIT 1', [$v['id']])->fetch();
@@ -225,6 +234,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$isFleetPost) {
         $form['expiry_date'] = default_expiry($form['issue_date'], (int)$form['validity_months']);
     }
 
+    // No registration yet: the chassis number takes its place.
+    if ($form['no_reg'] !== '') {
+        $form['no_reg'] = '1';
+        $form['reg_no'] = $form['chassis_no'];
+    }
+
     // Everything on the form is required.
     $labels = [
         'client_name' => 'Customer name', 'client_phone' => 'Contact', 'client_address' => 'Address',
@@ -268,7 +283,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !$isFleetPost) {
     if (!$errors && function_exists('chassis_on_file')) {
         $other = chassis_on_file($form['chassis_no'], $form['reg_no']);
 
-        if ($other && !$replated) {
+        if ($other && !$replated && plate_key((string)$other['reg_no']) === plate_key((string)$other['chassis_no'])) {
+            // On file with no registration yet - this is the plate arriving.
+            $errors[] = 'Chassis ' . $form['chassis_no'] . ' is on file with no registration yet ('
+                . trim((string)$other['client_name']) . '). To give it its plate, open its certificate'
+                . ' and use "Add the registration no." - a new certificate is not needed for that.';
+        } elseif ($other && !$replated) {
             $errors[] = 'Chassis ' . $form['chassis_no'] . ' is already on file as '
                 . $other['reg_no'] . ' (' . trim((string)$other['client_name']) . ').'
                 . ' Check the number first - one digit out is the usual cause. If this'
@@ -572,6 +592,7 @@ function field(string $name, string $label, string $value, array $opts = []): vo
         . (isset($opts['placeholder']) ? ' placeholder="' . e($opts['placeholder']) . '"' : '')
         . (isset($opts['min']) ? ' min="' . e((string)$opts['min']) . '"' : '')
         . (isset($opts['max']) ? ' max="' . e((string)$opts['max']) . '"' : '')
+        . (isset($opts['list']) ? ' list="' . e($opts['list']) . '" autocomplete="on"' : '')
         . '>';
     echo '</span>';
     if (!empty($opts['hint'])) { echo '<span class="field-hint">' . e($opts['hint']) . '</span>'; }
@@ -612,6 +633,7 @@ they confirm the payment.</p> </div>
 */
 $showFleet = $isFleetPost;
 ?>
+<?php kenya_towns_datalist(); ?>
 <datalist id="known-clients">
   <?php foreach ($knownClients as $kc): ?>
     <option value="<?= e($kc['name']) ?>"><?= e($kc['phone']) ?></option>
@@ -654,7 +676,7 @@ $showFleet = $isFleetPost;
       </label>
       <label class="field">Address
         <span class="field-row">
-          <input name="client_address" class="caps" maxlength="160"
+          <input name="client_address" class="caps" maxlength="160" list="kenya-towns" autocomplete="on"
                  value="<?= e($fleetForm['client_address']) ?>">
         </span>
       </label>
@@ -869,12 +891,44 @@ $showFleet = $isFleetPost;
                inputmode="tel" pattern="[0-9+ ]+" maxlength="20" title="Digits, spaces and + only">
       </span>
     </label>
-    <?php field('client_address', 'Address', $form['client_address'], ['caps' => true]); ?>
+    <?php field('client_address', 'Address', $form['client_address'], ['caps' => true, 'list' => 'kenya-towns']); ?>
   </fieldset>
 
   <fieldset>
     <legend>Vehicle</legend>
     <?php field('reg_no', 'Registration no.', $form['reg_no'], ['caps' => true]); ?>
+    <label class="field" style="font-weight:400; display:flex; gap:8px; align-items:center; margin-top:-4px">
+      <input type="checkbox" name="no_reg" value="1" id="no-reg" style="width:16px; margin:0"
+             <?= $form['no_reg'] !== '' ? 'checked' : '' ?>>
+      No registration yet &mdash; use the chassis number
+    </label>
+    <script>(function () {
+      // Ticked: the Registration box follows the chassis number and cannot be
+      // typed in. The server does the same, so this is only for the eye - and so
+      // the live checks below, which read the Registration box, see the chassis.
+      var tick = document.getElementById('no-reg');
+      var reg  = document.querySelector('#panel-one [name="reg_no"]') || document.querySelector('[name="reg_no"]');
+      if (!tick || !reg) { return; }
+      function chassis() { return document.querySelector('[name="chassis_no"]'); }
+      var typed = tick.checked ? '' : reg.value;
+      function sync() {
+        var c = chassis();
+        if (tick.checked) {
+          reg.readOnly = true; reg.required = false; reg.style.background = '#F3F5F8';
+          reg.value = c ? c.value.toUpperCase() : '';
+          reg.placeholder = 'Uses the chassis no.';
+        } else {
+          reg.readOnly = false; reg.required = true; reg.style.background = '';
+          reg.value = typed; reg.placeholder = '';
+        }
+        reg.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      tick.addEventListener('change', function () { if (tick.checked) { typed = reg.value; } sync(); });
+      document.addEventListener('input', function (ev) {
+        if (tick.checked && ev.target && ev.target.name === 'chassis_no') { sync(); }
+      });
+      if (tick.checked) { sync(); }
+    })();</script>
     <?php field('make', 'Make', $form['make'], ['caps' => true]); ?>
     <?php field('chassis_no', 'Chassis no.', $form['chassis_no'], ['caps' => true]); ?>
 
