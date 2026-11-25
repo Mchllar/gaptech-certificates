@@ -17,6 +17,16 @@ if (!$user && (!$client || (int)$client['id'] !== (int)$cert['client_id'])) {
 }
 
 $print = !empty($_GET['print']);
+
+// Staff printing is for administrators. Accounts may look at the sheet on screen
+// (that is how they check it before releasing) but not print it.
+$staffCanPrint = $user && ($user['role'] ?? '') === 'administrator';
+if ($print && $user && !$client && !$staffCanPrint) {
+    http_response_code(403);
+    exit('Printing certificates is for administrators. You are signed in as ' . e((string)$user['role']) . '.');
+}
+$GLOBALS['sheet_no_bar'] = !$user || !$staffCanPrint;
+
 if ($print) {
         q('UPDATE certificates SET print_count = print_count + 1,
             released_at = COALESCE(released_at, now()) WHERE id = ?', [$cert['id']]);
@@ -68,6 +78,11 @@ if ($print) {
         "<style>@page { size: A4 landscape; margin: 0; }</style>\n"
         . "<script>window.addEventListener('load', function () { window.print(); });</script>\n</head>",
         $html);
+}
+if ($user && !$client && !$staffCanPrint) {
+    // The browser's own Ctrl+P gives a blank page.
+    $html = str_replace('</head>', "<style>@media print { body { display: none !important; } }</style>
+</head>", $html);
 }
 header('Content-Type: text/html; charset=utf-8');
 echo $html;

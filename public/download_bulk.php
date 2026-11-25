@@ -11,7 +11,7 @@
  * that has to say no, whatever the list chose to show:
  *
  *   governor  any staff member; the certificate must be approved and numbered
- *   tracking  administrators only; the certificate must be valid
+ *   tracking  administrators and accounts; the certificate must be valid
  *
  * Anything selected that fails those rules is left out, and the reason is
  * listed in a note inside the zip, so nobody thinks a certificate went missing.
@@ -50,9 +50,9 @@ if (count($ids) > BULK_MAX) {
     flash('Download at most ' . BULK_MAX . ' certificates at a time.');
     redirect($back);
 }
-if ($kind === 'tracking' && $user['role'] !== 'administrator') {
+if ($kind === 'tracking' && !in_array($user['role'], ['administrator', 'accounts'], true)) {
     http_response_code(403);
-    exit('Downloading a certificate is for administrators. You are signed in as '
+    exit('Downloading a certificate is for administrators and accounts. You are signed in as '
         . e($user['role']) . '.');
 }
 if (pdf_engine() === null) {

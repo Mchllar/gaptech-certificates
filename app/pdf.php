@@ -698,6 +698,9 @@ function pdf_matches_design(string $pdfPath, string $kind): bool
         $t = @filemtime($root . '/' . $f);
         if ($t !== false && $t > $newest) { $newest = $t; }
     }
+    // A new signature or stamp uploaded in Settings changes every certificate too.
+    $newest = max($newest, (int)setting('images_changed_at', '0'));
+
     $made = @filemtime($pdfPath);
     return $made !== false && $made >= $newest;
 }

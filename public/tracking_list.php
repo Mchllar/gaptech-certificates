@@ -192,10 +192,11 @@ layout_top('Installations');
 </div>
 
 <?php
-  // Tick boxes for downloading several at once - administrators only, and only
+  // Tick boxes for downloading several at once - administrators and accounts, and only
   // valid certificates, the same rules as tracking_print.php. download_bulk.php
   // checks again; this just keeps the list honest.
-  $anyBulk = $isAdm && (bool)array_filter($rows, 'tracking_is_releasable');
+  $anyBulk = in_array($user['role'], ['administrator', 'accounts'], true)
+          && (bool)array_filter($rows, 'tracking_is_releasable');
 ?>
 <?php if ($anyBulk): ?>
 <form method="post" action="download_bulk.php" id="bulk-dl" class="bulk-bar" data-download>

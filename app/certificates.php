@@ -156,6 +156,14 @@ function render_sheet(array $cert, string $mode = 'screen'): string
     global $d, $assets, $zoom, $qr, $certno_img, $logo, $logo_gold, $kebs, $sticker_bg, $microtext;
 
     $d = json_decode($cert['snapshot'], true);
+
+    // The signature is the one in Settings today, not the copy frozen into the
+    // certificate when it was issued: it is the same signatory, and a better scan
+    // should show on every certificate printed from now on, old ones included.
+    $currentSig = (string)setting('signature_image', '');
+    if ($currentSig !== '') {
+        $d['signatory']['signature_image'] = $currentSig;
+    }
     $sheetToCss = 1123 / 2338;                       // sheet units -> CSS pixels
 
     if ($mode === 'pdf') {

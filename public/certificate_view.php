@@ -482,29 +482,24 @@ if ($payNote !== '') { $payCells[] = ['Message', '<a href="#" data-modal="#m-not
   <?php endif; ?>
 
   <?php if ($isAcc && $approved): ?>
-    <details class="pay-correct">
-      <summary>Correct the payment details</summary>
-      <form method="post" class="card-form">
+    <?php /* A button and a dialog, the same as the tracking certificate page. */ ?>
+    <p><button type="button" class="button secondary" data-modal="#m-pay">Correct the payment details</button></p>
+    <div class="gt-modal" id="m-pay">
+      <form method="post" class="gt-box">
+        <h3>Correct the payment details</h3>
         <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
         <input type="hidden" name="id" value="<?= (int)$cert['id'] ?>">
-        <label class="field">Payment reference
-          <span class="field-row">
+        <label class="gt-f">Payment reference
             <input name="payment_ref" maxlength="40" style="text-transform:uppercase"
-                   value="<?= e((string)$cert['payment_ref']) ?>"></span></label>
-        <label class="field">LPO number
-          <span class="field-row">
+                   value="<?= e((string)$cert['payment_ref']) ?>"></label>
+        <label class="gt-f">LPO number
             <input name="lpo_no" maxlength="60" style="text-transform:uppercase"
-                   value="<?= e((string)($cert['lpo_no'] ?? '')) ?>"></span></label>
-        <label class="field">Contract number
-          <span class="field-row">
+                   value="<?= e((string)($cert['lpo_no'] ?? '')) ?>"></label>
+        <label class="gt-f">Contract number
             <input name="contract_no" maxlength="60" style="text-transform:uppercase"
-                   value="<?= e((string)($cert['contract_no'] ?? '')) ?>"></span></label>
-        <label class="field" style="width:100%">Message
-          <span class="field-row">
-            <textarea name="payment_note" rows="2"
-              style="width:100%; padding:9px 11px; border:1px solid var(--line); border-radius:6px;
-                     font-family:inherit; font-size:14px; resize:vertical"><?= e((string)$cert['payment_note']) ?></textarea>
-          </span></label>
+                   value="<?= e((string)($cert['contract_no'] ?? '')) ?>"></label>
+        <label class="gt-f">Message
+            <textarea name="payment_note" rows="3"><?= e((string)$cert['payment_note']) ?></textarea></label>
 
         <?php /*
           Required here and checked again on the server. The browser's own
@@ -515,18 +510,19 @@ if ($payNote !== '') { $payCells[] = ['Message', '<a href="#" data-modal="#m-not
           reason carried over from last time is worse than none, because it reads
           as an explanation of this change when it explains a different one.
         */ ?>
-        <label class="field" style="width:100%">Reason for the correction <span class="req">*</span>
-          <span class="field-row">
+        <label class="gt-f">Reason for the correction <span class="req">*</span>
             <input name="correction_reason" required maxlength="200"
-                   placeholder="e.g. reference was mistyped, client paid after the LPO was raised">
-          </span>
-          <span class="field-hint">Goes on the record with the change, alongside what it
-            was before and who changed it.</span>
-        </label>
+                   placeholder="e.g. reference was mistyped, client paid after the LPO was raised"></label>
+        <p class="gt-hint">The reason goes on the record with the change, alongside what it
+            was before and who changed it.</p>
 
-        <button type="submit" name="action" value="update_pay" class="secondary">Save the correction</button>
+        <div class="gt-foot">
+          <button type="button" class="button secondary gt-close">Cancel</button>
+          <button type="submit" name="action" value="update_pay" class="button">Save the correction</button>
+        </div>
       </form>
-    </details>
+    </div>
+    <?php require_once APP_DIR . '/views/modal_base.php'; ?>
   <?php endif; ?>
 <?php endif; ?>
 
@@ -695,7 +691,7 @@ $awaitingReg = $isAdm && plate_key($printedChas) !== '' && plate_key($printedReg
 </div>
 <?php endif; ?>
 <?php if ($showCertActions): ?>
-<h2>The certificate itself</h2>
+<?php if ($isAdm): // accounts only get Download here, as on the tracking page ?><h2>The certificate itself</h2><?php endif; ?>
 
 <!-- ------------------------------------------------------------------ -->
 <!-- Same bar as the tracking module: solid for the thing you came to   -->
@@ -717,20 +713,12 @@ $awaitingReg = $isAdm && plate_key($printedChas) !== '' && plate_key($printedReg
     nothing anybody needs to open: the banner at the top of this page already says
     what its state is and, for a scheduled one, which certificate to print instead.
   */ ?>
+  <?php if ($live && $isAdm): // printing is for administrators; certificate_print.php enforces it ?>
+    <?php /* Plain paper only: pre-printed stationery cannot carry this certificate's own QR code. */ ?>
+    <a class="button" target="_blank" href="certificate_print.php?id=<?= (int)$cert['id'] ?>&amp;print=1">Print certificate</a>
+  <?php endif; ?>
   <?php if ($live): ?>
-    <?php
-      // Two papers, two buttons. The usual one (Settings) comes first and solid.
-      $printPlain = '<a class="button%s" target="_blank" href="certificate_print.php?id=' . (int)$cert['id']
-                  . '&amp;print=1">Print on plain paper</a>';
-      $printBlank = '<a class="button%s" target="_blank" href="certificate_print.php?id=' . (int)$cert['id']
-                  . '&amp;stock=preprinted">Print on pre-printed certificate</a>';
-      if (setting('governor_print_stock', 'plain') === 'preprinted') {
-          echo sprintf($printBlank, ''), "\n", sprintf($printPlain, ' secondary');
-      } else {
-          echo sprintf($printPlain, ''), "\n", sprintf($printBlank, ' secondary');
-      }
-    ?>
-    <a class="button secondary"
+    <a class="button<?= $isAdm ? ' secondary' : '' ?>"
        href="certificate_print.php?id=<?= (int)$cert['id'] ?>&amp;download=1">Download PDF</a>
   <?php endif; ?>
 

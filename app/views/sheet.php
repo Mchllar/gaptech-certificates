@@ -54,12 +54,12 @@ require_once __DIR__ . '/sheet_helpers.php';
 
   /* ---- signature on/off (screen prints only; a PDF always has it) ---- */
   body.no-sig .sig-img { display: none !important; }
-  /* Bolder signature. Only a transparent PNG: the ink is taken to solid black and
-     shadowed onto itself a hair each way, which thickens every stroke. (A JPEG has a
-     white background that would go black with it, so it is left as it is.) */
+  /* The signature as it was signed - a photo of the pen signature, cleaned to a
+     transparent PNG - with each stroke given a touch more weight so it shows up
+     clearly on the printed sheet. The ink keeps its own colour. */
   img.sig-img[src^="data:image/png"], img.sig-img[src$=".png"] {
-    filter: brightness(0) drop-shadow(0.9px 0 0 #000) drop-shadow(-0.9px 0 0 #000)
-            drop-shadow(0 0.9px 0 #000) drop-shadow(0 -0.9px 0 #000); }
+    filter: drop-shadow(.8px 0 0 rgba(22,24,34,.85)) drop-shadow(0 .7px 0 rgba(22,24,34,.7));
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
   /* ---- onto the PRE-PRINTED stationery ----------------------------------
      The blank already carries everything that never changes, so only the
@@ -220,7 +220,7 @@ require_once __DIR__ . '/sheet_helpers.php';
   <div class="t c" style="left:55px; top:<?= 1305 - 16 ?>px; font-size:24.5px;">Dealer Name: <span class="cb" style="font-size:32.8px;"><?= e($d['company']['dealer_name']) ?></span></div>
   <?= t(55, 1365, 24.7, 'c', 'Signature:') ?>
   <?= ln(160, 540, 1377) ?>
-  <?= signature(230, 1330, 240, 1390) ?>
+  <?= signature(215, 1316, 280, 1404) ?>
   <?= t(552, 1365, 24.7, 'c', 'Company seal (here)') ?>
   <?= ln(770, 1058, 1377) ?>
   <?php if (!empty($d['company']['stamp_image'])): ?><img class="img" src="<?= e($d['company']['stamp_image']) ?>" style="left:830px; top:1262px; height:125px; opacity:0.85;"><?php endif; ?>
@@ -265,7 +265,7 @@ require_once __DIR__ . '/sheet_helpers.php';
  
   <?= t(1185, 747, 24.3, 'c', 'SIGNED') ?>
   <?= ln(1375, 1612, 775) ?>
-  <?= signature(1385, 722, 220, 784) ?>
+  <?= signature(1375, 719, 240, 800) ?>
   <?= tc(1375, 1612, 797, 27.2, 'cbi', 'COMPANY', 'color:#333;') ?>
   <?= ln(1865, 2102, 780) ?>
   <?= tc(1865, 2102, 803, 27.2, 'cbi', 'CLIENT/REP.', 'color:#333;') ?>
@@ -283,7 +283,7 @@ require_once __DIR__ . '/sheet_helpers.php';
     <?= t(1170, $cy, 22.3, 'ab', $label) ?><?= ln(1300, 1518, $cy + 12) ?><?= val(1300, 1518, $cy + 12, 32.7, 'ab', 'AB', $value, 4) ?>
   <?php endforeach; ?>
   <?= t(1170, 1540, 22.3, 'ab', 'Signature') ?><?= ln(1300, 1518, 1552) ?>
-  <?= signature(1310, 1490, 200, 1585) ?>
+  <?= signature(1290, 1484, 240, 1630) ?>
  
   <!-- ================= VEHICLE STICKER (bottom right) ================= -->
   <img class="img" src="<?= $sticker_bg ?>" style="left:1568px; top:872px; width:737px; height:726px;">
@@ -304,7 +304,7 @@ require_once __DIR__ . '/sheet_helpers.php';
     <?= t(1613, $cy, 27.6, 'ab emb', $label, 'color:#3a3a3a;') ?><?= ln(1770, 2222, $cy + 14) ?><?= val(1770, 2222, $cy + 14, 33, 'ab', 'AB', $value, 4) ?>
   <?php endforeach; ?>
   <?= t(1613, 1540, 27.6, 'ab emb', 'Signature', 'color:#3a3a3a;') ?><?= ln(1770, 2222, 1554) ?>
-  <?= signature(1880, 1490, 230, 1572) ?>
+  <?= signature(1850, 1484, 280, 1586) ?>
  
   <?php if ($ppAlign):
     // Millimetre rulers for the alignment test, in sheet units (7.872 per mm).

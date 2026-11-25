@@ -578,11 +578,9 @@ function render_tracking_sheet(array $cert, string $mode = 'screen'): string
         : 'assets';
     $trackingMode = $mode;
 
-    // Onto a pre-printed blank: the entries only, placed on the blank's boxes.
-    // Only ever on screen (for the print dialog) - a PDF always carries the
-    // whole design, since nobody knows what paper it will meet.
-    $view = ($mode === 'screen' && ($GLOBALS['tracking_print_stock'] ?? 'plain') === 'preprinted')
-        ? 'tracking_sheet_preprinted.php' : 'tracking_sheet.php';
+    // Always the whole design. (Printing onto pre-printed tracking blanks was
+    // removed: the blanks cannot carry this certificate's own QR code.)
+    $view = 'tracking_sheet.php';
 
     ob_start();
     include APP_DIR . '/views/' . $view;

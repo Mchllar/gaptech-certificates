@@ -365,6 +365,7 @@ $rows = [
 <div class="screen-only">
   <a class="bar-btn bar-back" href="tracking_view.php?id=<?= (int)($_GET['id'] ?? 0) ?>">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>Back to the certificate</a>
+  <?php if ($GLOBALS['tracking_can_print'] ?? true): // accounts may look, not print ?>
   <?php if ($stampSrc): ?>
     <label class="bar-opt"><input type="checkbox" <?= $withStamp ? 'checked' : '' ?>
       onchange="document.body.classList.toggle('no-stamp', !this.checked)"> Print the stamp</label>
@@ -375,6 +376,7 @@ $rows = [
   <?php endif; ?>
   <button type="button" class="bar-btn bar-print" onclick="window.print()">
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg>Print this certificate</button>
+  <?php endif; ?>
 </div>
 <?php endif; ?>
 

@@ -587,7 +587,7 @@ layout_back('tracking_list.php', 'Back to Tracking Installations');
           <?php endif; ?></td></tr>
 </table>
 <?php if ($isAcc && $approved): ?>
-  <p><a class="button secondary pay-edit" href="#">Correct the payment details</a></p>
+  <p><button type="button" class="button secondary pay-edit">Correct the payment details</button></p>
 <?php endif; ?>
 <?php endif; ?>
 
@@ -688,23 +688,22 @@ layout_back('tracking_list.php', 'Back to Tracking Installations');
 <?php endif; ?>
 
 <!-- ------------------------------------------------------------------ -->
+<!-- Accounts: download only - printing is for administrators            -->
+<!-- ------------------------------------------------------------------ -->
+<?php if ($isAcc && $live): ?>
+  <div class="row-actions" style="margin-top:22px; display:flex; flex-wrap:wrap; gap:10px">
+    <a class="button" href="tracking_print.php?id=<?= (int)$cert['id'] ?>&amp;download=1">Download PDF</a>
+  </div>
+<?php endif; ?>
+
+<!-- ------------------------------------------------------------------ -->
 <!-- Administrators: print, download, renew, void                       -->
 <!-- ------------------------------------------------------------------ -->
 <?php if ($isAdm): ?>
   <div class="row-actions" style="margin-top:22px; display:flex; flex-wrap:wrap; gap:10px">
     <?php if ($live): ?>
-      <?php
-        // Two papers, two buttons. The usual one (Settings) comes first and solid.
-        $printPlain = '<a class="button%s" href="tracking_print.php?id=' . (int)$cert['id']
-                    . '&amp;stock=plain&amp;print=1" target="_blank">Print on plain paper</a>';
-        $printBlank = '<a class="button%s" href="tracking_print.php?id=' . (int)$cert['id']
-                    . '&amp;stock=preprinted" target="_blank">Print on pre-printed certificate</a>';
-        if (setting('tracking_print_stock', 'plain') === 'preprinted') {
-            echo sprintf($printBlank, ''), "\n", sprintf($printPlain, ' secondary');
-        } else {
-            echo sprintf($printPlain, ''), "\n", sprintf($printBlank, ' secondary');
-        }
-      ?>
+      <?php /* Plain paper only: pre-printed tracking blanks cannot carry the certificate's own QR code. */ ?>
+      <a class="button" href="tracking_print.php?id=<?= (int)$cert['id'] ?>&amp;print=1" target="_blank">Print certificate</a>
       <a class="button secondary" href="tracking_print.php?id=<?= (int)$cert['id'] ?>&amp;download=1">Download PDF</a>
     <?php elseif ($approved): ?>
       <a class="button secondary" href="tracking_print.php?id=<?= (int)$cert['id'] ?>" target="_blank">
