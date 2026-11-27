@@ -3,8 +3,43 @@
 require __DIR__ . '/../app/bootstrap.php';
 require APP_DIR . '/certificates.php';
 require APP_DIR . '/views/layout.php';
+require_once APP_DIR . '/mailer.php';
 
-require_supervisor();
+$me = require_supervisor();
+
+// ---------------------------------------------------------------- test e-mail
+//
+// Sends one message through the same mailer the password reset codes use, from
+// wherever this site is running - so on the live server it proves that server
+// can send, without anybody needing to log in to it. Shows the exact error if not.
+$mailResult = null;   // ['ok' => bool, 'text' => string]
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'test_mail') {
+    csrf_check();
+    $to = trim((string)($_POST['test_to'] ?? ''));
+    if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
+        $mailResult = ['ok' => false, 'text' => 'Type a valid e-mail address to send the test to.'];
+    } elseif (!mail_configured()) {
+        $mailResult = ['ok' => false, 'text' => 'E-mail is not set up on this server: SMTP_HOST and SMTP_FROM '
+            . 'are empty in its .env file. Ask whoever deployed the site to fill them in.'];
+    } else {
+        $err  = null;
+        $body = "This is a test from the GAPTECH certificate system.
+
+"
+            . "If you are reading it, password reset codes will be delivered.
+
+"
+            . 'Sent ' . date('d-m-Y H:i') . ' from ' . ($config['base_url'] ?? gethostname())
+            . ' by ' . ($me['name'] ?? 'an administrator') . ".
+";
+        $ok = mail_send($to, 'Certificate system test message', $body, $err);
+        audit('test_mail', 'settings', null, ['to' => $to, 'ok' => $ok, 'error' => $ok ? '' : (string)$err]);
+        $mailResult = $ok
+            ? ['ok' => true, 'text' => 'Sent to ' . $to . '. Check the inbox - and the spam folder; if it is '
+                . 'there, the domain needs its SPF and DKIM records set up.']
+            : ['ok' => false, 'text' => 'Could not send: ' . ($err ?: 'unknown error') . '.'];
+    }
+}
 
 $fields = [
     'company_name' => 'Company name', 'tagline' => 'Tagline',
@@ -19,7 +54,7 @@ $fields = [
     'financier_bonus' => 'Financier extra months on first installation (NAME:MONTHS, ...)',
 ];
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'test_mail') {
     csrf_check();
     foreach ($fields as $key => $label) {
         set_setting($key, trim((string)($_POST[$key] ?? '')));
@@ -127,6 +162,31 @@ they were issued with.</p>
       Print the signature (the same: changeable on each print; a PDF always has it)</label>
   </fieldset>
   <button type="submit">Save settings</button>
+</form>
+
+<?php $smtp = $config['smtp'] ?? []; ?>
+<form method="post" class="card-form" style="margin-top:22px">
+  <input type="hidden" name="csrf" value="<?= e(csrf_token()) ?>">
+  <fieldset>
+    <legend>E-mail (password reset codes)</legend>
+    <p class="hint" style="text-align:left">
+      <?php if (mail_configured()): ?>
+        Sending from <b><?= e((string)($smtp['from'] ?? '')) ?></b> through
+        <b><?= e((string)($smtp['host'] ?? '')) ?>:<?= (int)($smtp['port'] ?? 0) ?></b>.
+        These come from the server's .env file and can only be changed there.
+      <?php else: ?>
+        E-mail is <b>not set up</b> on this server &mdash; SMTP_HOST and SMTP_FROM are empty in its
+        .env file, so password reset codes cannot be sent.
+      <?php endif; ?>
+      Send yourself a test to check it works from here.</p>
+    <?php if ($mailResult): ?>
+      <p class="<?= $mailResult['ok'] ? 'flash' : 'error' ?>" style="text-align:left"><?= e($mailResult['text']) ?></p>
+    <?php endif; ?>
+    <label>Send a test e-mail to
+      <input name="test_to" type="email" required placeholder="you@example.com"
+             value="<?= e((string)($_POST['test_to'] ?? '')) ?>"></label>
+  </fieldset>
+  <button type="submit" name="action" value="test_mail" class="secondary">Send a test e-mail</button>
 </form>
 </div>
 <?php layout_bottom(); ?>

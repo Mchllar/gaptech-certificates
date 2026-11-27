@@ -92,6 +92,14 @@ function layout_top(string $title, string $nav = 'staff'): void
       // The payment reference in a pasted M-Pesa, bank or Pesalink message - the
       // browser twin of extract_payment_ref() in app/certificates.php. Keep the
       // two the same. Used by every "paste the payment message" box.
+      // Ctrl+Shift+F opens World Fleet Log in a new tab, from any page.
+      document.addEventListener('keydown', function (ev) {
+        if (ev.ctrlKey && ev.shiftKey && !ev.altKey && (ev.key === 'F' || ev.key === 'f' || ev.code === 'KeyF')) {
+          ev.preventDefault();
+          window.open('https://www.worldfleetlog.com/wfl/', '_blank', 'noopener');
+        }
+      });
+
       window.gtPaymentRef = function (text) {
         text = text || '';
         // Pesalink has no transaction code; the receipt link's code is the one
